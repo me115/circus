@@ -124,6 +124,78 @@ const renderWords = (text: string): string[] => {
     .filter((w) => w.length > 0);
 };
 
+const getKineticMode = (motionRecipe: string): "pop" | "slide" | "type" => {
+  if (motionRecipe === "slide" || motionRecipe === "kenburns") {
+    return "slide";
+  }
+
+  if (motionRecipe === "type") {
+    return "type";
+  }
+
+  return "pop";
+};
+
+const getPromptAppearMode = (motionRecipe: string): "slideUp" | "fade" | "pop" => {
+  if (motionRecipe === "slide") {
+    return "slideUp";
+  }
+
+  if (motionRecipe === "spring" || motionRecipe === "pop") {
+    return "pop";
+  }
+
+  return "fade";
+};
+
+const getKenBurnsByRecipe = (recipe: string, index: number) => {
+  if (recipe === "kenburns") {
+    return {
+      enabled: true,
+      fromScale: 1.03,
+      toScale: 1.1,
+      fromX: index % 2 === 0 ? -12 : 12,
+      toX: index % 2 === 0 ? 10 : -10,
+      fromY: -8,
+      toY: 8,
+    };
+  }
+
+  if (recipe === "slide") {
+    return {
+      enabled: true,
+      fromScale: 1.0,
+      toScale: 1.04,
+      fromX: index % 2 === 0 ? -16 : 16,
+      toX: index % 2 === 0 ? 8 : -8,
+      fromY: 0,
+      toY: 0,
+    };
+  }
+
+  if (recipe === "spring" || recipe === "pop") {
+    return {
+      enabled: true,
+      fromScale: 0.98,
+      toScale: 1.05,
+      fromX: 0,
+      toX: index % 2 === 0 ? 4 : -4,
+      fromY: -2,
+      toY: 2,
+    };
+  }
+
+  return {
+    enabled: true,
+    fromScale: 1.01,
+    toScale: 1.07,
+    fromX: index % 2 === 0 ? -8 : 8,
+    toX: index % 2 === 0 ? 8 : -6,
+    fromY: -4,
+    toY: 5,
+  };
+};
+
 const BeatScene = ({
   beat,
   index,
@@ -137,6 +209,9 @@ const BeatScene = ({
   const padX = Math.round(width * layout.mediaPadXPct);
   const padY = Math.round(height * layout.mediaPadYPct);
   const words = renderWords(beat.text);
+  const kineticMode = getKineticMode(beat.motionRecipe);
+  const promptAppearMode = getPromptAppearMode(beat.motionRecipe);
+  const kenBurns = getKenBurnsByRecipe(beat.motionRecipe, index);
 
   const mediaSrc = index % 2 === 0 ? assets.demoImage1 : assets.demoImage2;
 
@@ -147,15 +222,7 @@ const BeatScene = ({
         src={mediaSrc}
         startFrame={0}
         durationInFrames={Math.max(12, beat.durationInFrames - 2)}
-        kenBurns={{
-          enabled: true,
-          fromScale: 1.01,
-          toScale: 1.08,
-          fromX: index % 2 === 0 ? -8 : 8,
-          toX: index % 2 === 0 ? 8 : -6,
-          fromY: -4,
-          toY: 5,
-        }}
+        kenBurns={kenBurns}
       />
     </AbsoluteFill>
   );
@@ -198,7 +265,7 @@ const BeatScene = ({
             prompt={beat.text}
             answer="The loop evaluates objectively, applies spec patches, then rerenders for visible improvement."
             startFrame={3}
-            appearMode="slideUp"
+            appearMode={promptAppearMode}
             showCursor
             typing={{enabled: true, cps: 30}}
           />
@@ -276,7 +343,7 @@ const BeatScene = ({
           words={words}
           startFrame={4}
           wordStagger={6}
-          mode={beat.renderMode === "media" ? "slide" : "pop"}
+          mode={beat.renderMode === "media" ? "slide" : kineticMode}
           emphasize={[0, Math.max(0, words.length - 1)]}
         />
       </div>
@@ -326,7 +393,7 @@ export const SkillExplainer60 = ({spec, quality}: SkillExplainer60Props) => {
             }
 
             const beat = beats[index];
-            const timingFrames = Math.max(8, Math.min(14, Math.floor(beat.durationInFrames * 0.12)));
+            const timingFrames = Math.max(12, Math.min(20, Math.floor(beat.durationInFrames * 0.18)));
 
             return [
               sceneEl,

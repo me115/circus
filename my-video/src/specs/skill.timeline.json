@@ -34,7 +34,7 @@
       "t0": 0.0,
       "t1": 3.0,
       "intent": "hook",
-      "text": "Start with the user problem.",
+      "text": "Start with the user",
       "renderMode": "hero",
       "transitionType": "fade",
       "motionRecipe": "spring"
@@ -44,7 +44,7 @@
       "t0": 3.0,
       "t1": 6.0,
       "intent": "context",
-      "text": "Define constraints before...",
+      "text": "Define constraints",
       "renderMode": "kinetic",
       "transitionType": "fade",
       "motionRecipe": "slide"
@@ -54,7 +54,7 @@
       "t0": 6.0,
       "t1": 9.0,
       "intent": "context",
-      "text": "Choose one visual language.",
+      "text": "Choose one visual",
       "renderMode": "kinetic",
       "transitionType": "slide",
       "motionRecipe": "slide"
@@ -64,7 +64,7 @@
       "t0": 9.0,
       "t1": 12.0,
       "intent": "process",
-      "text": "Keep beats predictable...",
+      "text": "Keep beats",
       "renderMode": "media",
       "transitionType": "slide",
       "motionRecipe": "kenburns"
@@ -104,7 +104,7 @@
       "t0": 21.0,
       "t1": 24.0,
       "intent": "process",
-      "text": "Constrain motion recipes...",
+      "text": "Constrain motion",
       "renderMode": "media",
       "transitionType": "slide",
       "motionRecipe": "slide"
@@ -114,7 +114,7 @@
       "t0": 24.0,
       "t1": 27.0,
       "intent": "proof",
-      "text": "Render once and inspect...",
+      "text": "Render once and",
       "renderMode": "kinetic",
       "transitionType": "fade",
       "motionRecipe": "slide"
@@ -124,7 +124,7 @@
       "t0": 27.0,
       "t1": 30.0,
       "intent": "proof",
-      "text": "Track black frames and...",
+      "text": "Track black frames",
       "renderMode": "promptCard",
       "transitionType": "slide",
       "motionRecipe": "slide"
@@ -144,7 +144,7 @@
       "t0": 33.0,
       "t1": 36.0,
       "intent": "proof",
-      "text": "Use one report for gate...",
+      "text": "Use one report for",
       "renderMode": "kinetic",
       "transitionType": "slide",
       "motionRecipe": "slide"
@@ -154,10 +154,10 @@
       "t0": 36.0,
       "t1": 39.0,
       "intent": "iterate",
-      "text": "Generate machine-readable...",
+      "text": "Generate",
       "renderMode": "kinetic",
       "transitionType": "fade",
-      "motionRecipe": "pop"
+      "motionRecipe": "slide"
     },
     {
       "id": "b14",
@@ -167,7 +167,7 @@
       "text": "Patch config before...",
       "renderMode": "kinetic",
       "transitionType": "fade",
-      "motionRecipe": "pop"
+      "motionRecipe": "slide"
     },
     {
       "id": "b15",
@@ -184,7 +184,7 @@
       "t0": 45.0,
       "t1": 48.0,
       "intent": "iterate",
-      "text": "Keep loop deterministic...",
+      "text": "Keep loop",
       "renderMode": "media",
       "transitionType": "fade",
       "motionRecipe": "kenburns"
@@ -194,7 +194,7 @@
       "t0": 48.0,
       "t1": 51.0,
       "intent": "cta",
-      "text": "Stop once gate passes and...",
+      "text": "Stop once gate passes",
       "renderMode": "lowerThird",
       "transitionType": "slide",
       "motionRecipe": "slide"
@@ -204,7 +204,7 @@
       "t0": 51.0,
       "t1": 54.0,
       "intent": "cta",
-      "text": "Archive every report for...",
+      "text": "Archive every report",
       "renderMode": "lowerThird",
       "transitionType": "fade",
       "motionRecipe": "slide"
@@ -214,7 +214,7 @@
       "t0": 54.0,
       "t1": 57.0,
       "intent": "outro",
-      "text": "From creative draft to...",
+      "text": "From creative draft",
       "renderMode": "outro",
       "transitionType": "fade",
       "motionRecipe": "spring"
@@ -224,7 +224,7 @@
       "t0": 57.0,
       "t1": 60.0,
       "intent": "outro",
-      "text": "This is production-ready...",
+      "text": "This is",
       "renderMode": "outro",
       "transitionType": "fade",
       "motionRecipe": "spring"

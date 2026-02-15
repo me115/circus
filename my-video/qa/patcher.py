@@ -52,7 +52,7 @@ def _truncate_text(text: str, max_len: int) -> str:
 
     words = text.split()
     if not words:
-        return text[:max_len].rstrip() + "..."
+        return text[:max_len].rstrip()
 
     acc: List[str] = []
     for word in words:
@@ -62,9 +62,20 @@ def _truncate_text(text: str, max_len: int) -> str:
         acc.append(word)
 
     if not acc:
-        return text[:max_len].rstrip() + "..."
+        return text[:max_len].rstrip()
 
-    return " ".join(acc).rstrip(".,;:!? ") + "..."
+    result = " ".join(acc).rstrip(".,;:!? ")
+    if len(result) <= max_len:
+        return result
+    return result[:max_len].rstrip()
+
+
+def _estimate_lines_count(text: str, max_chars_per_line: int) -> int:
+    safe_max = max(1, int(max_chars_per_line))
+    text_len = len((text or "").strip())
+    if text_len <= 0:
+        return 1
+    return max(1, (text_len + safe_max - 1) // safe_max)
 
 
 def _dedupe_patches(patches: List[Patch]) -> List[Patch]:
@@ -197,7 +208,42 @@ def generate_patch_suggestions(
                 )
                 r_idx += 1
 
-    # 4) Text readability: shorten overlong beat copy in spec.
+    # 4) Motion diversity: keep recipes focused and consistent in spec.
+    motion_count = int(_deep_get(manifest, "diversity", "motion_recipe_count", default=0) or 0)
+    max_motion = int(_deep_get(quality, "limits", "maxMotionRecipes", default=3) or 3)
+    if beats and motion_count > max_motion:
+        keep_priority = {"slide": 1000, "kenburns": 900, "spring": 800, "pop": 700, "type": 600}
+        freq: Dict[str, int] = {}
+        for beat in beats:
+            recipe = str(beat.get("motionRecipe") or "slide").strip() or "slide"
+            freq[recipe] = freq.get(recipe, 0) + 1
+
+        ranked = sorted(
+            freq.keys(),
+            key=lambda key: (freq.get(key, 0), keep_priority.get(key, 0)),
+            reverse=True,
+        )
+        keep_set = set(ranked[:max_motion])
+
+        for idx, beat in enumerate(beats):
+            recipe = str(beat.get("motionRecipe") or "slide").strip() or "slide"
+            if recipe in keep_set:
+                continue
+
+            render_mode = str(beat.get("renderMode") or "").strip()
+            fallback = "kenburns" if render_mode == "media" and "kenburns" in keep_set else "slide"
+            if fallback == recipe:
+                continue
+
+            _add_patch(
+                patches,
+                spec_path,
+                f"/beats/{idx}/motionRecipe",
+                fallback,
+                "Motion recipe diversity is too high: converge on a smaller recipe set for consistency.",
+            )
+
+    # 5) Text readability: shorten overlong beat copy in spec.
     max_chars = int(_deep_get(quality, "limits", "maxCharsPerLine", default=12))
     max_lines = int(_deep_get(quality, "limits", "maxLines", default=2))
     line_hit_rate = _safe_float(_deep_get(manifest, "text", "line_hit_rate", default=1.0), 1.0)
@@ -206,10 +252,12 @@ def generate_patch_suggestions(
     if line_hit_rate < 0.9 and beats:
         for idx, beat in enumerate(beats):
             text = str(beat.get("text") or "")
-            compact_len = len(text.replace(" ", ""))
-            if compact_len <= hard_limit:
+            lines_count = _estimate_lines_count(text, max_chars)
+            if lines_count <= max_lines and len(text.strip()) <= hard_limit:
                 continue
-            shortened = _truncate_text(text, hard_limit + 4)
+            shortened = _truncate_text(text, hard_limit)
+            if _estimate_lines_count(shortened, max_chars) > max_lines:
+                shortened = shortened[:hard_limit].rstrip()
             if shortened != text:
                 _add_patch(
                     patches,
@@ -219,7 +267,7 @@ def generate_patch_suggestions(
                     "Text density is high: shorten beat copy to improve per-screen readability.",
                 )
 
-    # 5) Audio loudness: tune content-side audio bed level in spec.
+    # 6) Audio loudness: tune content-side audio bed level in spec.
     lufs = audio.get("input_i_lufs")
     min_lufs = _safe_float(_deep_get(quality, "audio", "minLUFS", default=-18.0), -18.0)
     max_lufs = _safe_float(_deep_get(quality, "audio", "maxLUFS", default=-14.0), -14.0)
