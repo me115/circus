@@ -1,0 +1,5 @@
+numpy
+opencv-python
+jiwer
+pydantic
+rich

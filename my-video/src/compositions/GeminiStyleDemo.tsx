@@ -22,6 +22,10 @@ type GeminiStyleDemoProps = {
   image2Src?: string;
   logoSrc?: string;
   tagline?: string;
+  beatCutFlashOpacity?: number;
+  beatCutFlashDurationFrames?: number;
+  beatCutIntervalFrames?: number;
+  beatCutShakeAmp?: number;
 };
 
 type MontageScene = {
@@ -42,6 +46,10 @@ export const GeminiStyleDemo = ({
   image2Src,
   logoSrc,
   tagline = "Build faster stories with frame-accurate motion.",
+  beatCutFlashOpacity = 0.22,
+  beatCutFlashDurationFrames = 3,
+  beatCutIntervalFrames = 15,
+  beatCutShakeAmp = 3.4,
 }: GeminiStyleDemoProps) => {
   const primaryImage = withFallbackAsset(image1Src, assets.demoImage1);
   const secondaryImage = withFallbackAsset(image2Src, assets.demoImage2);
@@ -98,7 +106,7 @@ export const GeminiStyleDemo = ({
     },
   ];
 
-  const beatGrid = createBeatGrid(0, 750, 15);
+  const beatGrid = createBeatGrid(0, 750, beatCutIntervalFrames);
 
   return (
     <AbsoluteFill style={{backgroundColor: tokens.colors.background}}>
@@ -227,9 +235,9 @@ export const GeminiStyleDemo = ({
 
         <BeatCut
           beatsInFrames={beatGrid}
-          flashDurationFrames={3}
-          flashOpacity={0.22}
-          shake={{enabled: true, amp: 3.4}}
+          flashDurationFrames={beatCutFlashDurationFrames}
+          flashOpacity={beatCutFlashOpacity}
+          shake={{enabled: true, amp: beatCutShakeAmp}}
         />
       </Sequence>
 

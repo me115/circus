@@ -1,0 +1,66 @@
+{
+  "targetScore": 60,
+  "video": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "durationSec": 60,
+    "durationTolSec": 1.0
+  },
+  "safeArea": {
+    "marginLeftPct": 0.07,
+    "marginRightPct": 0.07,
+    "marginTopPct": 0.08,
+    "marginBottomPct": 0.15
+  },
+  "audio": {
+    "targetLUFS": -16,
+    "minLUFS": -18,
+    "maxLUFS": -14,
+    "maxTruePeakDbTP": -1.0
+  },
+  "rhythm": {
+    "minBeatSec": 2.5,
+    "maxBeatSec": 4.0,
+    "targetBeatSec": 3.0
+  },
+  "flicker": {
+    "maxP95DeltaLuma": 18
+  },
+  "weights": {
+    "rhythm": 25,
+    "text": 20,
+    "motion": 20,
+    "audio": 15,
+    "stability": 20
+  },
+  "limits": {
+    "maxTransitionTypes": 2,
+    "maxMotionRecipes": 3,
+    "maxCharsPerLine": 12,
+    "maxLines": 2,
+    "maxFont": 110
+  },
+  "layout": {
+    "safePadding": 72,
+    "mediaPadXPct": 0.085,
+    "mediaPadYPct": 0.13,
+    "kineticYPct": 0.66,
+    "lowerThirdYPct": 0.71,
+    "cardYPct": 0.24,
+    "cardWidthPct": 0.72,
+    "cardHeightPct": 0.44,
+    "heroMaxWidthPct": 0.78,
+    "heroYPct": 0.19,
+    "heroHeightPct": 0.36
+  },
+  "beatCut": {
+    "flashOpacity": 0.08,
+    "flashDurationFrames": 2,
+    "shakeAmp": 2.5,
+    "intervalFrames": 15
+  },
+  "postAudioNormalize": {
+    "enabled": false
+  }
+}

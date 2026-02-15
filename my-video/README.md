@@ -96,3 +96,17 @@ Output path: `out/gemini-style-demo.mp4`
 - `BeatCut`: `beatsInFrames`, `flashDurationFrames`, `flashOpacity`, `shake`
 - `LowerThird`: `title`, `source`, `startFrame`, `durationInFrames`, `align`
 - `LogoOutro`: `logoSrc`, `tagline`, `startFrame`, `durationInFrames`, `chimeSrc`
+
+## QA Pipeline
+
+Automated quality evaluation and iterative optimization are documented in:
+
+- `qa/README_QA.md`
+
+Key commands:
+
+```console
+npm run render:skill
+npm run qa:eval
+npm run qa:loop
+```

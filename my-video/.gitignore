@@ -12,3 +12,5 @@ out
 .codex
 .cursor
 .trae
+.venv
+qa/.venv

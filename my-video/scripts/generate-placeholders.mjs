@@ -140,6 +140,43 @@ const buildSineWav = ({
   return Buffer.concat([header, pcm]);
 };
 
+const buildAmbientBedWav = ({
+  durationSeconds,
+  sampleRate,
+}) => {
+  const sampleCount = Math.floor(durationSeconds * sampleRate);
+  const pcm = Buffer.alloc(sampleCount * 2);
+
+  for (let i = 0; i < sampleCount; i++) {
+    const t = i / sampleRate;
+    const fadeIn = Math.min(1, i / (sampleRate * 0.35));
+    const fadeOut = Math.min(1, (sampleCount - i) / (sampleRate * 0.35));
+    const envelope = Math.min(fadeIn, fadeOut);
+    const layerA = Math.sin(2 * Math.PI * 196 * t);
+    const layerB = Math.sin(2 * Math.PI * 261.63 * t) * 0.55;
+    const layerC = Math.sin(2 * Math.PI * 329.63 * t) * 0.35;
+    const sample = ((layerA + layerB + layerC) / 1.9) * 0.22 * envelope;
+    pcm.writeInt16LE(Math.round(sample * 32767), i * 2);
+  }
+
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0, "ascii");
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVE", 8, "ascii");
+  header.write("fmt ", 12, "ascii");
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36, "ascii");
+  header.writeUInt32LE(pcm.length, 40);
+
+  return Buffer.concat([header, pcm]);
+};
+
 const writeIfMissing = (filePath, bufferBuilder) => {
   if (fs.existsSync(filePath)) {
     console.log(`exists: ${path.relative(projectRoot, filePath)}`);
@@ -167,4 +204,8 @@ writeIfMissing(path.join(demoDir, "img2.png"), () =>
 
 writeIfMissing(path.join(publicDir, "chime.wav"), () =>
   buildSineWav({durationSeconds: 0.12, sampleRate: 44100, frequency: 1046.5}),
+);
+
+writeIfMissing(path.join(publicDir, "bed.wav"), () =>
+  buildAmbientBedWav({durationSeconds: 6.0, sampleRate: 44100}),
 );

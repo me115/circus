@@ -3,6 +3,7 @@ import {staticFile} from "remotion";
 export const assets = {
   logo: staticFile("logo.png"),
   chime: staticFile("chime.wav"),
+  bed: staticFile("bed.wav"),
   demoImage1: staticFile("demo/img1.png"),
   demoImage2: staticFile("demo/img2.png"),
   demoBroll: staticFile("demo/broll.mp4"),
