@@ -1,16 +1,28 @@
+import {ReactNode} from "react";
 import {TransitionSeries, linearTiming} from "@remotion/transitions";
 import {fade} from "@remotion/transitions/fade";
 import {slide} from "@remotion/transitions/slide";
-import {AbsoluteFill, Audio, useVideoConfig} from "remotion";
+import {AbsoluteFill, Audio, interpolate, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
 import {BeatCut} from "../components/BeatCut";
 import {BrandBackdrop} from "../components/BrandBackdrop";
 import {HeroTitle} from "../components/HeroTitle";
 import {KineticWords} from "../components/KineticWords";
+import {LogoOutro} from "../components/LogoOutro";
+import {LowerThird} from "../components/LowerThird";
 import {MediaFrame} from "../components/MediaFrame";
+import {ProgrammaticBroll} from "../components/ProgrammaticBroll";
 import {PromptAnswerCard} from "../components/PromptAnswerCard";
 import {tokens} from "../theme/tokens";
+import {StylePreset} from "../theme/types";
+import {
+  BackdropConfig,
+  LayoutConfig,
+  QualityConfig,
+  SceneLayer,
+  SkillTimelineSpec,
+  TimelineBeat,
+} from "../specs/types";
 import {assets} from "../utils/assets";
-import {LayoutConfig, QualityConfig, SkillTimelineSpec, TimelineBeat} from "../specs/types";
 
 type SkillExplainer60Props = {
   spec?: SkillTimelineSpec;
@@ -18,11 +30,14 @@ type SkillExplainer60Props = {
 };
 
 type NormalizedBeat = TimelineBeat & {
+  text: string;
   renderMode: string;
   transitionType: string;
   motionRecipe: string;
   startFrame: number;
   durationInFrames: number;
+  layers: SceneLayer[];
+  backdrop: Required<BackdropConfig>;
 };
 
 const DEFAULT_LAYOUT: Required<LayoutConfig> = {
@@ -39,9 +54,48 @@ const DEFAULT_LAYOUT: Required<LayoutConfig> = {
   heroHeightPct: 0.36,
 };
 
+const asRecord = (value: unknown): Record<string, unknown> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
+};
+
+const asString = (value: unknown, fallback = ""): string => {
+  return typeof value === "string" ? value : fallback;
+};
+
+const asNumber = (value: unknown, fallback: number): number => {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+};
+
+const asBool = (value: unknown, fallback: boolean): boolean => {
+  return typeof value === "boolean" ? value : fallback;
+};
+
+const asStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string");
+};
+
+const asNumberArray = (value: unknown): number[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
+};
+
 const pickRenderMode = (beat: TimelineBeat): string => {
-  if (beat.renderMode) {
-    return beat.renderMode;
+  const explicit = beat.renderMode ?? beat.render_mode;
+  if (explicit && explicit !== "remotion_only") {
+    return explicit;
+  }
+
+  const layers = beat.scene?.layers ?? [];
+  if (layers.length > 0) {
+    return "scene";
   }
 
   const intent = `${beat.intent ?? ""}`.toLowerCase();
@@ -51,6 +105,21 @@ const pickRenderMode = (beat: TimelineBeat): string => {
   if (intent.includes("process")) return "media";
   if (intent.includes("cta")) return "lowerThird";
   return "kinetic";
+};
+
+const resolveBackdrop = (beat: TimelineBeat): Required<BackdropConfig> => {
+  const cfg = beat.scene?.backdrop ?? {};
+  const presetRaw = cfg.preset;
+  const preset: StylePreset =
+    presetRaw === "dark" || presetRaw === "light" || presetRaw === "gemini"
+      ? presetRaw
+      : "gemini";
+
+  return {
+    preset,
+    animate: cfg.animate ?? true,
+    intensity: cfg.intensity ?? 0.85,
+  };
 };
 
 const normalizeBeats = (
@@ -73,6 +142,8 @@ const normalizeBeats = (
         motionRecipe: "spring",
         startFrame: 0,
         durationInFrames,
+        layers: [],
+        backdrop: {preset: "gemini", animate: true, intensity: 0.85},
       },
     ];
   }
@@ -84,15 +155,20 @@ const normalizeBeats = (
     const fromSpec = Math.max(18, Math.round(declaredDuration * fps));
     const remaining = durationInFrames - cursor;
     const isLast = index === beats.length - 1;
-    const duration = isLast ? Math.max(18, remaining) : Math.max(18, Math.min(fromSpec, remaining));
+    const duration = isLast
+      ? Math.max(18, remaining)
+      : Math.max(18, Math.min(fromSpec, remaining));
 
     const normalizedBeat: NormalizedBeat = {
       ...beat,
+      text: beat.text ?? beat.line ?? "",
       renderMode: pickRenderMode(beat),
-      transitionType: beat.transitionType ?? "fade",
-      motionRecipe: beat.motionRecipe ?? "spring",
+      transitionType: beat.transitionType ?? beat.transition_type ?? "fade",
+      motionRecipe: beat.motionRecipe ?? beat.motion_recipe ?? "spring",
       startFrame: cursor,
       durationInFrames: duration,
+      layers: beat.scene?.layers ?? [],
+      backdrop: resolveBackdrop(beat),
     };
 
     cursor += duration;
@@ -111,13 +187,18 @@ const normalizeBeats = (
       motionRecipe: "spring",
       startFrame: cursor,
       durationInFrames: durationInFrames - cursor,
+      layers: [],
+      backdrop: {preset: "gemini", animate: true, intensity: 0.82},
     });
   }
 
   return normalized;
 };
 
-const renderWords = (text: string): string[] => {
+const renderWords = (text: string | undefined): string[] => {
+  if (!text) {
+    return [];
+  }
   return text
     .split(/\s+/)
     .map((w) => w.trim())
@@ -128,11 +209,9 @@ const getKineticMode = (motionRecipe: string): "pop" | "slide" | "type" => {
   if (motionRecipe === "slide" || motionRecipe === "kenburns") {
     return "slide";
   }
-
   if (motionRecipe === "type") {
     return "type";
   }
-
   return "pop";
 };
 
@@ -140,11 +219,9 @@ const getPromptAppearMode = (motionRecipe: string): "slideUp" | "fade" | "pop" =
   if (motionRecipe === "slide") {
     return "slideUp";
   }
-
   if (motionRecipe === "spring" || motionRecipe === "pop") {
     return "pop";
   }
-
   return "fade";
 };
 
@@ -196,156 +273,389 @@ const getKenBurnsByRecipe = (recipe: string, index: number) => {
   };
 };
 
-const BeatScene = ({
+const defaultBrollByIntent = (intent: string): string => {
+  const key = intent.toLowerCase();
+  if (key.includes("problem")) return "KeywordVsMeaningBroll";
+  if (key.includes("analogy")) return "VectorMapBroll";
+  if (key.includes("step1")) return "ChunksBroll";
+  if (key.includes("step2")) return "EmbeddingsBroll";
+  if (key.includes("step3")) return "StoreAndLinkBroll";
+  if (key.includes("nearest")) return "NearestNeighborsBroll";
+  if (key.includes("use")) return "UseCasesIconsBroll";
+  if (key.includes("rag")) return "RetrieveThenAnswerBroll";
+  return "PipelineBlocksBroll";
+};
+
+const renderLayer = ({
   beat,
+  layer,
   index,
   layout,
+  frameWidth,
+  frameHeight,
 }: {
   beat: NormalizedBeat;
+  layer: SceneLayer;
   index: number;
   layout: Required<LayoutConfig>;
-}) => {
-  const {width, height} = useVideoConfig();
-  const padX = Math.round(width * layout.mediaPadXPct);
-  const padY = Math.round(height * layout.mediaPadYPct);
+  frameWidth: number;
+  frameHeight: number;
+}): ReactNode => {
+  const props = asRecord(layer.props);
+  const mediaPadX = Math.round(frameWidth * layout.mediaPadXPct);
+  const mediaPadY = Math.round(frameHeight * layout.mediaPadYPct);
+
+  if (layer.type === "HeroTitle") {
+    const title = asString(props.title, beat.text);
+    const subtitle = asString(props.subtitle);
+    const align = asString(props.align, "center") === "left" ? "left" : "center";
+    const enterDelayFrames = asNumber(props.enterDelayFrames, 4);
+    const accentWord = asString(props.accentWord);
+
+    return (
+      <div
+        key={`${beat.id}-hero-${index}`}
+        style={{
+          position: "absolute",
+          left: Math.round(frameWidth * (1 - layout.heroMaxWidthPct) * 0.5),
+          top: Math.round(frameHeight * layout.heroYPct),
+          width: Math.round(frameWidth * layout.heroMaxWidthPct),
+          height: Math.round(frameHeight * layout.heroHeightPct),
+        }}
+      >
+        <HeroTitle
+          title={title}
+          subtitle={subtitle}
+          align={align}
+          enterDelayFrames={enterDelayFrames}
+          accentWord={accentWord || undefined}
+        />
+      </div>
+    );
+  }
+
+  if (layer.type === "MediaFrame") {
+    const kind = asString(props.kind, "react");
+    if (kind === "react") {
+      return (
+        <AbsoluteFill key={`${beat.id}-react-${index}`}>
+          <ProgrammaticBroll
+            name={asString(props.reactContent)}
+            fallbackName={asString(props.fallbackReactContent, "PipelineBlocksBroll")}
+          />
+        </AbsoluteFill>
+      );
+    }
+
+    const srcRaw = asString(props.src);
+    const safeSrc = srcRaw ? staticFile(srcRaw) : index % 2 === 0 ? assets.demoImage1 : assets.demoImage2;
+    const mediaKind = kind === "video" ? "video" : "image";
+
+    return (
+      <AbsoluteFill key={`${beat.id}-media-${index}`} style={{padding: `${mediaPadY}px ${mediaPadX}px`}}>
+        <MediaFrame
+          kind={mediaKind}
+          src={safeSrc}
+          startFrame={asNumber(props.startFrame, 0)}
+          durationInFrames={Math.max(12, beat.durationInFrames - 2)}
+          kenBurns={getKenBurnsByRecipe(beat.motionRecipe, index)}
+        />
+      </AbsoluteFill>
+    );
+  }
+
+  if (layer.type === "KineticWords") {
+    const words = asStringArray(props.words);
+    const emphasize = asNumberArray(props.emphasize);
+    const modeRaw = asString(props.mode, "pop");
+    const mode = modeRaw === "slide" || modeRaw === "type" ? modeRaw : "pop";
+    const startFrameOffset = asNumber(props.startFrameOffset, 4);
+
+    return (
+      <div
+        key={`${beat.id}-kinetic-${index}`}
+        style={{
+          position: "absolute",
+          left: Math.round(frameWidth * 0.1),
+          right: Math.round(frameWidth * 0.1),
+          top: Math.round(frameHeight * layout.kineticYPct),
+          fontSize: tokens.typography.sizes.body,
+        }}
+      >
+        <KineticWords
+          words={words.length > 0 ? words : renderWords(beat.text)}
+          startFrame={startFrameOffset}
+          wordStagger={6}
+          mode={mode}
+          emphasize={emphasize.length > 0 ? emphasize : [0]}
+        />
+      </div>
+    );
+  }
+
+  if (layer.type === "LowerThird") {
+    const durationSec = asNumber(props.durationSec, beat.durationInFrames / 30);
+    const title = asString(props.title, beat.text);
+    const source = asString(props.source);
+    const align = asString(props.align, "left") === "right" ? "right" : "left";
+    const startFrame = asNumber(props.startFrame, 4);
+    const durationInFrames = Math.max(12, Math.round(durationSec * 30));
+
+    return (
+      <LowerThird
+        key={`${beat.id}-lt-${index}`}
+        title={title}
+        source={source}
+        startFrame={startFrame}
+        durationInFrames={Math.min(durationInFrames, beat.durationInFrames - 1)}
+        align={align}
+      />
+    );
+  }
+
+  if (layer.type === "PromptAnswerCard") {
+    const typingRaw = asRecord(props.typing);
+    const prompt = asString(props.prompt, beat.text);
+    const answer = asString(props.answer, "Answer from retrieved context.");
+    const appearRaw = asString(props.appearMode, "slideUp");
+    const appearMode = appearRaw === "fade" || appearRaw === "pop" ? appearRaw : "slideUp";
+    const typing = {
+      enabled: asBool(typingRaw.enabled, false),
+      cps: asNumber(typingRaw.cps, 20),
+    };
+
+    return (
+      <div
+        key={`${beat.id}-card-${index}`}
+        style={{
+          position: "absolute",
+          left: Math.round((1 - layout.cardWidthPct) * frameWidth * 0.5),
+          top: Math.round(frameHeight * layout.cardYPct),
+          width: Math.round(frameWidth * layout.cardWidthPct),
+          height: Math.round(frameHeight * layout.cardHeightPct),
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        <PromptAnswerCard
+          prompt={prompt}
+          answer={answer}
+          startFrame={asNumber(props.startFrame, 3)}
+          appearMode={appearMode}
+          showCursor
+          typing={typing}
+        />
+      </div>
+    );
+  }
+
+  if (layer.type === "LogoOutro") {
+    const logoSrcRaw = asString(props.logoSrc, "logo.png");
+    const chimeSrcRaw = asString(props.chimeSrc);
+    const logoSrc = logoSrcRaw ? staticFile(logoSrcRaw) : assets.logo;
+    const chimeSrc = chimeSrcRaw ? staticFile(chimeSrcRaw) : assets.chime;
+
+    return (
+      <LogoOutro
+        key={`${beat.id}-outro-${index}`}
+        logoSrc={logoSrc}
+        tagline={asString(props.tagline, beat.text)}
+        startFrame={0}
+        durationInFrames={beat.durationInFrames}
+        chimeSrc={chimeSrc}
+      />
+    );
+  }
+
+  return null;
+};
+
+const renderFallbackScene = ({
+  beat,
+  layout,
+  frameWidth,
+  frameHeight,
+}: {
+  beat: NormalizedBeat;
+  layout: Required<LayoutConfig>;
+  frameWidth: number;
+  frameHeight: number;
+}): ReactNode => {
   const words = renderWords(beat.text);
   const kineticMode = getKineticMode(beat.motionRecipe);
   const promptAppearMode = getPromptAppearMode(beat.motionRecipe);
-  const kenBurns = getKenBurnsByRecipe(beat.motionRecipe, index);
-
-  const mediaSrc = index % 2 === 0 ? assets.demoImage1 : assets.demoImage2;
-
-  const media = (
-    <AbsoluteFill style={{padding: `${padY}px ${padX}px`}}>
-      <MediaFrame
-        kind="image"
-        src={mediaSrc}
-        startFrame={0}
-        durationInFrames={Math.max(12, beat.durationInFrames - 2)}
-        kenBurns={kenBurns}
-      />
-    </AbsoluteFill>
-  );
 
   if (beat.renderMode === "hero") {
     return (
-      <AbsoluteFill>
-        {media}
-        <div
-          style={{
-            position: "absolute",
-            left: Math.round(width * (1 - layout.heroMaxWidthPct) * 0.5),
-            top: Math.round(height * layout.heroYPct),
-            width: Math.round(width * layout.heroMaxWidthPct),
-            height: Math.round(height * layout.heroHeightPct),
-          }}
-        >
-          <HeroTitle title={beat.text} subtitle="Objective metrics first." enterDelayFrames={4} />
-        </div>
-      </AbsoluteFill>
+      <div
+        style={{
+          position: "absolute",
+          left: Math.round(frameWidth * (1 - layout.heroMaxWidthPct) * 0.5),
+          top: Math.round(frameHeight * layout.heroYPct),
+          width: Math.round(frameWidth * layout.heroMaxWidthPct),
+          height: Math.round(frameHeight * layout.heroHeightPct),
+        }}
+      >
+        <HeroTitle title={beat.text} subtitle="Explain clearly with visual structure." enterDelayFrames={4} />
+      </div>
     );
   }
 
   if (beat.renderMode === "promptCard") {
     return (
-      <AbsoluteFill>
-        {media}
-        <div
-          style={{
-            position: "absolute",
-            left: Math.round((1 - layout.cardWidthPct) * width * 0.5),
-            top: Math.round(height * layout.cardYPct),
-            width: Math.round(width * layout.cardWidthPct),
-            height: Math.round(height * layout.cardHeightPct),
-            display: "flex",
-            alignItems: "center",
-          }}
-        >
-          <PromptAnswerCard
-            prompt={beat.text}
-            answer="The loop evaluates objectively, applies spec patches, then rerenders for visible improvement."
-            startFrame={3}
-            appearMode={promptAppearMode}
-            showCursor
-            typing={{enabled: true, cps: 30}}
-          />
-        </div>
-      </AbsoluteFill>
-    );
-  }
-
-  if (beat.renderMode === "lowerThird") {
-    return (
-      <AbsoluteFill>
-        {media}
-        <div
-          style={{
-            position: "absolute",
-            left: Math.round(width * 0.1),
-            right: Math.round(width * 0.1),
-            top: Math.round(height * layout.lowerThirdYPct),
-          }}
-        >
-          <div
-            style={{
-              fontFamily: tokens.typography.fontFamilySans,
-              fontSize: tokens.typography.sizes.body,
-              color: "#eef4ff",
-              fontWeight: 700,
-              lineHeight: 1.25,
-              textShadow: "0 6px 30px rgba(5,10,22,0.55)",
-            }}
-          >
-            {beat.text}
-          </div>
-        </div>
-      </AbsoluteFill>
+      <div
+        style={{
+          position: "absolute",
+          left: Math.round((1 - layout.cardWidthPct) * frameWidth * 0.5),
+          top: Math.round(frameHeight * layout.cardYPct),
+          width: Math.round(frameWidth * layout.cardWidthPct),
+          height: Math.round(frameHeight * layout.cardHeightPct),
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        <PromptAnswerCard
+          prompt={beat.text}
+          answer="This scene mixes concepts, structure, and examples in one frame."
+          startFrame={3}
+          appearMode={promptAppearMode}
+          showCursor
+          typing={{enabled: true, cps: 28}}
+        />
+      </div>
     );
   }
 
   if (beat.renderMode === "outro") {
     return (
-      <AbsoluteFill>
-        {media}
-        <div
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: Math.round(height * 0.24),
-            display: "grid",
-            placeItems: "center",
-          }}
-        >
-          <HeroTitle
-            title={beat.text}
-            subtitle="Measured quality, stable motion, no blank sections."
-            enterDelayFrames={2}
-          />
-        </div>
-      </AbsoluteFill>
+      <LogoOutro
+        logoSrc={assets.logo}
+        tagline={beat.text}
+        startFrame={0}
+        durationInFrames={beat.durationInFrames}
+        chimeSrc={assets.chime}
+      />
     );
   }
 
   return (
-    <AbsoluteFill>
-      {media}
+    <>
+      <ProgrammaticBroll name={defaultBrollByIntent(beat.intent)} fallbackName="PipelineBlocksBroll" />
       <div
         style={{
           position: "absolute",
-          left: Math.round(width * 0.1),
-          right: Math.round(width * 0.1),
-          top: Math.round(height * layout.kineticYPct),
-          fontSize: tokens.typography.sizes.body,
+          left: Math.round(frameWidth * 0.1),
+          right: Math.round(frameWidth * 0.1),
+          top: Math.round(frameHeight * layout.kineticYPct),
         }}
       >
         <KineticWords
-          words={words}
+          words={words.length > 0 ? words : ["Clear", "Visual", "Story"]}
           startFrame={4}
           wordStagger={6}
           mode={beat.renderMode === "media" ? "slide" : kineticMode}
           emphasize={[0, Math.max(0, words.length - 1)]}
         />
+      </div>
+      <LowerThird
+        title={beat.text}
+        source=""
+        startFrame={6}
+        durationInFrames={Math.max(12, beat.durationInFrames - 10)}
+        align="left"
+      />
+    </>
+  );
+};
+
+const BeatScene = ({
+  beat,
+  layout,
+}: {
+  beat: NormalizedBeat;
+  layout: Required<LayoutConfig>;
+}) => {
+  const {width, height} = useVideoConfig();
+  const hasLayers = beat.layers.length > 0;
+
+  return (
+    <AbsoluteFill>
+      <BrandBackdrop
+        preset={beat.backdrop.preset}
+        animate={beat.backdrop.animate}
+        intensity={beat.backdrop.intensity}
+        safePadding={layout.safePadding}
+      />
+      {hasLayers
+        ? beat.layers.map((layer, idx) =>
+            renderLayer({
+              beat,
+              layer,
+              index: idx,
+              layout,
+              frameWidth: width,
+              frameHeight: height,
+            }),
+          )
+        : renderFallbackScene({beat, layout, frameWidth: width, frameHeight: height})}
+    </AbsoluteFill>
+  );
+};
+
+const HookIntro = ({
+  text,
+  durationInFrames,
+}: {
+  text: string;
+  durationInFrames: number;
+}) => {
+  const frame = useCurrentFrame();
+  if (frame >= durationInFrames) {
+    return null;
+  }
+
+  const fadeInFrames = Math.max(8, Math.floor(durationInFrames * 0.18));
+  const fadeOutFrames = Math.max(10, Math.floor(durationInFrames * 0.22));
+  const outStart = Math.max(fadeInFrames + 6, durationInFrames - fadeOutFrames);
+  const opacity = interpolate(
+    frame,
+    [0, fadeInFrames, outStart, durationInFrames],
+    [0, 1, 1, 0],
+    {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    },
+  );
+  const scale = interpolate(frame, [0, fadeInFrames, durationInFrames], [0.985, 1, 1.01], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+
+  return (
+    <AbsoluteFill
+      style={{
+        backgroundColor: "#000",
+        justifyContent: "center",
+        alignItems: "center",
+        opacity,
+        transform: `scale(${scale})`,
+        zIndex: 200,
+        pointerEvents: "none",
+      }}
+    >
+      <div
+        style={{
+          width: "82%",
+          textAlign: "center",
+          color: "#ffffff",
+          fontFamily: tokens.typography.fontFamilySans,
+          fontWeight: 760,
+          fontSize: Math.max(68, Math.round(tokens.typography.sizes.hero * 0.78)),
+          lineHeight: 1.08,
+          letterSpacing: -0.6,
+        }}
+      >
+        {text}
       </div>
     </AbsoluteFill>
   );
@@ -361,14 +671,37 @@ export const SkillExplainer60 = ({spec, quality}: SkillExplainer60Props) => {
   };
 
   const beats = normalizeBeats(spec, fps, durationInFrames);
-  const beatsInFrames = beats.map((beat) => beat.startFrame);
   const audioBedVolume = spec?.meta?.audioBedVolume ?? 0.08;
-  const audioLayerCount = Math.max(1, Math.min(4, Math.floor(spec?.meta?.audioLayerCount ?? 1)));
+  const audioLayerCount = Math.max(
+    1,
+    Math.min(4, Math.floor(spec?.meta?.audioLayerCount ?? 1)),
+  );
+  const voiceoverSrcRaw = spec?.audio?.src?.trim();
+  const voiceoverSrc = voiceoverSrcRaw ? staticFile(voiceoverSrcRaw) : null;
+  const voiceoverStart = Math.max(0, Number(spec?.audio?.startSec ?? 0));
+
+  const beatCutCfg = spec?.global_overlays?.beatcut;
+  const beatCutEnabled = beatCutCfg?.enabled ?? true;
+  const beatCutFrames =
+    beatCutCfg?.beatsInFrames && beatCutCfg.beatsInFrames.length > 0
+      ? beatCutCfg.beatsInFrames
+      : beats.map((beat) => beat.startFrame);
+  const transitionFrames = beats.map((beat, index) =>
+    index === beats.length - 1
+      ? 0
+      : Math.max(12, Math.min(20, Math.floor(beat.durationInFrames * 0.18))),
+  );
+  const hookEnabled = spec?.meta?.hookEnabled ?? true;
+  const hookDurationSec = Math.max(2.6, Number(spec?.meta?.hookDurationSec ?? 3));
+  const hookDurationInFrames = Math.min(
+    durationInFrames - 1,
+    Math.max(1, Math.round(hookDurationSec * fps)),
+  );
+  const hookTextRaw = spec?.meta?.hookText?.trim();
+  const hookText = hookTextRaw || beats[0]?.text || "Your search is missing answers.";
 
   return (
     <AbsoluteFill style={{backgroundColor: tokens.colors.background}}>
-      <BrandBackdrop preset="gemini" intensity={0.95} animate safePadding={layout.safePadding} />
-
       {Array.from({length: audioLayerCount}).map((_, idx) => (
         <Audio
           key={`bed-${idx}`}
@@ -378,13 +711,16 @@ export const SkillExplainer60 = ({spec, quality}: SkillExplainer60Props) => {
           playbackRate={1 - idx * 0.02}
         />
       ))}
-      <Audio src={assets.chime} volume={0.18} />
+      {voiceoverSrc ? <Audio src={voiceoverSrc} startFrom={Math.round(voiceoverStart * fps)} /> : null}
 
       <TransitionSeries>
         {beats
           .map((beat, index) => (
-            <TransitionSeries.Sequence key={beat.id} durationInFrames={beat.durationInFrames}>
-              <BeatScene beat={beat} index={index} layout={layout} />
+            <TransitionSeries.Sequence
+              key={beat.id}
+              durationInFrames={beat.durationInFrames + (index > 0 ? transitionFrames[index - 1] : 0)}
+            >
+              <BeatScene beat={beat} layout={layout} />
             </TransitionSeries.Sequence>
           ))
           .flatMap((sceneEl, index, arr) => {
@@ -393,7 +729,7 @@ export const SkillExplainer60 = ({spec, quality}: SkillExplainer60Props) => {
             }
 
             const beat = beats[index];
-            const timingFrames = Math.max(12, Math.min(20, Math.floor(beat.durationInFrames * 0.18)));
+            const timingFrames = transitionFrames[index];
 
             return [
               sceneEl,
@@ -410,12 +746,18 @@ export const SkillExplainer60 = ({spec, quality}: SkillExplainer60Props) => {
           })}
       </TransitionSeries>
 
-      <BeatCut
-        beatsInFrames={beatsInFrames}
-        flashDurationFrames={quality?.beatCut?.flashDurationFrames ?? 2}
-        flashOpacity={quality?.beatCut?.flashOpacity ?? 0.08}
-        shake={{enabled: true, amp: quality?.beatCut?.shakeAmp ?? 2.4}}
-      />
+      {beatCutEnabled ? (
+        <BeatCut
+          beatsInFrames={beatCutFrames}
+          flashDurationFrames={
+            beatCutCfg?.flashDurationFrames ?? quality?.beatCut?.flashDurationFrames ?? 2
+          }
+          flashOpacity={beatCutCfg?.flashOpacity ?? quality?.beatCut?.flashOpacity ?? 0.08}
+          shake={{enabled: true, amp: quality?.beatCut?.shakeAmp ?? 2.4}}
+        />
+      ) : null}
+
+      {hookEnabled ? <HookIntro text={hookText} durationInFrames={hookDurationInFrames} /> : null}
     </AbsoluteFill>
   );
 };

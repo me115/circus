@@ -1,1 +1,15 @@
-Start with the user problem. Define constraints before coding. Choose one visual language. Keep beats predictable and readable. Use transitions with intent, not noise. Tie kinetic words to narration cadence. Protect safe area for every text block. Constrain motion recipes for consistency. Render once and inspect objective metrics. Track black frames and flicker peaks. Measure LUFS and true peak safely. Use one report for gate and score. Generate machine-readable patch suggestions. Patch config before touching templates. Re-render and verify improvements. Keep loop deterministic and reproducible. Stop once gate passes and score is high. Archive every report for auditability. From creative draft to measured output. This is production-ready quality control.
+Stop scrolling. Your search is missing answers right now.
+Traditional databases match exact words. If you type “puppy”, they might miss “dog”.
+A vector database stores content as numbers that represent meaning, called vectors.
+Think of it like a map: similar ideas end up close together.
+First, you break text, images, or audio into chunks.
+An AI model turns each chunk into a vector, also called an embedding.
+The database stores those vectors with links back to the original content.
+When you ask a question, your question becomes a vector too.
+Then it finds the nearest vectors, the closest meanings, super fast.
+Ask “How do I reset my password?” and it finds relevant help articles even if the wording differs.
+That powers semantic search, chatbots, and “ask your docs” tools.
+It also helps LLMs: retrieve the right facts before answering, so fewer hallucinations.
+Use it whenever you care about meaning: support tickets, notes, and product catalogs.
+So: a vector database stores meaning as vectors, and searches by closeness.
+Keywords find matches. Vectors find intent.

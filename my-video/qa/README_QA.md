@@ -44,6 +44,7 @@ Current loop policy:
 
 - Gate thresholds in `src/config/quality.json` are treated as locked.
 - Auto-patches target `src/specs/skill.timeline.json` only (rhythm/storyboard/layout/audio-bed volume).
+- Scoring is now design-heavy: composition + motion consistency carry most weight.
 
 ## Files
 
@@ -59,7 +60,24 @@ Current loop policy:
 - `score`: total(0-100) and weighted breakdown
 - `metrics.video`: fps/duration/black frame ratio/flicker proxy
 - `metrics.audio`: LUFS/True Peak/LRA
-- `metrics.manifest`: rhythm/text/safe-area/diversity stats
+- `metrics.manifest`: rhythm/text/safe-area/frame-bounds/diversity stats
+- `metrics.manifest.layout`: composition coverage, visual center balance, estimated font readability, lower-half usage
+- `metrics.manifest.no_element_gap`: max no-element gap from timeline metadata
+- `metrics.video.maxNoElementGapSecVideo`: max no-element gap from sampled frame activity (hard gate with manifest gap)
+- `metrics.manifest.diversity`: transition/motion/component-type diversity and repetition ratio
+- `metrics.video.foregroundCoverage*`: sampled foreground occupancy (for "too empty" detection)
+- `metrics.video.foregroundCenterXPctMean`: left/right visual center bias (for horizontal balance)
+- `metrics.manifest.layout.alignment_score`: bbox alignment quality (for PPT-like neatness)
+- `metrics.manifest.layout.sparse_beat_rate`: low-occupancy beat ratio (for anti-sparse pacing)
+
+## Design Intent
+
+- `60` should mean "usable with minor/no edits", not just technically valid render.
+- High scores now require:
+  - sufficient foreground occupancy (avoid huge empty canvas)
+  - balanced left/right visual center
+  - lower sparse-beat ratio
+  - non-monotone transition/motion usage
 - `metrics.asr`: optional whisper CER (`skipped=true` when whisper missing)
 - `suggestions.patch_suggestions`: machine-readable patches
 - `exit_code`:

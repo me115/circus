@@ -20,6 +20,15 @@ const DEFAULT_LAYOUT = {
   heroHeightPct: 0.36,
 };
 
+const SUPPORTED_LAYER_TYPES = new Set([
+  "HeroTitle",
+  "MediaFrame",
+  "LowerThird",
+  "KineticWords",
+  "PromptAnswerCard",
+  "LogoOutro",
+]);
+
 const parseArgs = (argv) => {
   const args = {};
 
@@ -70,7 +79,23 @@ const unique = (values) => {
   return [...new Set(values.filter((v) => v !== undefined && v !== null && `${v}`.trim().length > 0))];
 };
 
+const countBy = (values) => {
+  return values.reduce((acc, value) => {
+    const key = `${value}`;
+    if (!key.trim()) {
+      return acc;
+    }
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+};
+
 const getRenderMode = (beat) => {
+  const explicit = beat?.renderMode ?? beat?.render_mode;
+  if (explicit && explicit !== "remotion_only") {
+    return explicit;
+  }
+
   if (beat.renderMode) {
     return beat.renderMode;
   }
@@ -139,6 +164,77 @@ const bboxForMode = (mode, width, height, layout) => {
   };
 };
 
+const modeToLayerType = (mode) => {
+  if (mode === "hero") return "HeroTitle";
+  if (mode === "lowerThird") return "LowerThird";
+  if (mode === "promptCard") return "PromptAnswerCard";
+  if (mode === "media") return "MediaFrame";
+  if (mode === "outro") return "LogoOutro";
+  return "KineticWords";
+};
+
+const layerTypeToMode = (type) => {
+  if (type === "HeroTitle") return "hero";
+  if (type === "LowerThird") return "lowerThird";
+  if (type === "PromptAnswerCard") return "promptCard";
+  if (type === "MediaFrame") return "media";
+  if (type === "LogoOutro") return "outro";
+  return "kinetic";
+};
+
+const getBeatLayers = (beat, renderMode) => {
+  const raw = beat?.scene?.layers;
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw
+      .filter((layer) => layer && typeof layer === "object")
+      .map((layer) => ({
+        type: `${layer.type ?? "KineticWords"}`,
+        props: typeof layer.props === "object" && layer.props !== null ? layer.props : {},
+      }));
+  }
+
+  return [{type: modeToLayerType(renderMode), props: {}}];
+};
+
+const isRenderableLayer = (type) => SUPPORTED_LAYER_TYPES.has(`${type ?? ""}`);
+
+const estimateFontPx = (layer, bbox, maxFont) => {
+  const type = `${layer?.type ?? ""}`;
+  const kind = `${layer?.props?.kind ?? ""}`;
+
+  if (type === "HeroTitle") return clamp(Math.round(bbox.h * 0.18), 30, maxFont);
+  if (type === "LowerThird") return clamp(Math.round(bbox.h * 0.2), 26, 72);
+  if (type === "KineticWords") return clamp(Math.round(bbox.h * 0.22), 24, 68);
+  if (type === "PromptAnswerCard") return clamp(Math.round(bbox.h * 0.13), 22, 56);
+  if (type === "LogoOutro") return clamp(Math.round(bbox.h * 0.16), 28, 72);
+  if (type === "MediaFrame" && kind === "react") return 24;
+  return 20;
+};
+
+const getLayerCharCount = (layer, fallbackText) => {
+  const type = `${layer?.type ?? ""}`;
+  const props = layer?.props ?? {};
+  const fallbackLen = `${fallbackText ?? ""}`.length;
+
+  if (type === "KineticWords") {
+    const words = Array.isArray(props.words) ? props.words : [];
+    return Math.max(fallbackLen, `${words.join(" ")}`.length);
+  }
+  if (type === "LowerThird") {
+    return Math.max(fallbackLen, `${props.title ?? ""}`.length);
+  }
+  if (type === "HeroTitle") {
+    return Math.max(fallbackLen, `${props.title ?? ""} ${props.subtitle ?? ""}`.trim().length);
+  }
+  if (type === "PromptAnswerCard") {
+    return Math.max(fallbackLen, `${props.prompt ?? ""} ${props.answer ?? ""}`.trim().length);
+  }
+  if (type === "LogoOutro") {
+    return Math.max(fallbackLen, `${props.tagline ?? ""}`.length);
+  }
+  return fallbackLen;
+};
+
 const isSafeMarginViolation = (bbox, width, height, margins) => {
   const left = width * toNumber(margins.marginLeftPct, 0.07);
   const right = width * toNumber(margins.marginRightPct, 0.07);
@@ -150,6 +246,14 @@ const isSafeMarginViolation = (bbox, width, height, margins) => {
   if (bbox.x + bbox.w > width - right) return true;
   if (bbox.y + bbox.h > height - bottom) return true;
 
+  return false;
+};
+
+const isFrameOverflow = (bbox, width, height) => {
+  if (bbox.x < 0) return true;
+  if (bbox.y < 0) return true;
+  if (bbox.x + bbox.w > width) return true;
+  if (bbox.y + bbox.h > height) return true;
   return false;
 };
 
@@ -175,15 +279,26 @@ const main = () => {
   const fps = toNumber(spec?.meta?.fps, toNumber(quality?.video?.fps, 30));
   const width = toNumber(spec?.meta?.width, toNumber(quality?.video?.width, 1920));
   const height = toNumber(spec?.meta?.height, toNumber(quality?.video?.height, 1080));
-  const durationSec = toNumber(spec?.meta?.durationSec, toNumber(quality?.video?.durationSec, 60));
+  const durationSec = toNumber(
+    spec?.meta?.durationSec ?? spec?.meta?.duration_sec,
+    toNumber(quality?.video?.durationSec, 60),
+  );
   const compositionId = spec?.meta?.compositionId ?? "SkillExplainer60";
 
   const maxCharsPerLine = toNumber(quality?.limits?.maxCharsPerLine, 12);
+  const maxFont = toNumber(quality?.limits?.maxFont, 110);
 
   const beats = (spec?.beats ?? []).map((beat, index) => {
-    const text = `${beat?.text ?? ""}`;
+    const text = `${beat?.text ?? beat?.line ?? ""}`;
     const textLen = text.length;
     const renderMode = getRenderMode(beat);
+    const layers = getBeatLayers(beat, renderMode);
+    const layerTypes = layers.map((layer) => `${layer.type ?? ""}`);
+    const renderableLayerCount = layers.filter((layer) => isRenderableLayer(layer.type)).length;
+    const reactContents = layers
+      .filter((layer) => `${layer?.type ?? ""}` === "MediaFrame")
+      .map((layer) => `${layer?.props?.reactContent ?? ""}`.trim())
+      .filter((name) => name.length > 0);
 
     return {
       id: beat?.id ?? `beat-${index + 1}`,
@@ -193,24 +308,42 @@ const main = () => {
       textLen,
       linesCount: estimateLinesCount(textLen, maxCharsPerLine),
       renderMode,
-      transitionType: beat?.transitionType ?? "fade",
-      motionRecipe: beat?.motionRecipe ?? "spring",
+      transitionType: beat?.transitionType ?? beat?.transition_type ?? "fade",
+      motionRecipe: beat?.motionRecipe ?? beat?.motion_recipe ?? "spring",
       text,
+      layers,
+      layerTypes,
+      reactContents,
+      renderableLayerCount,
+      hasRenderableElements: renderableLayerCount > 0,
     };
   });
 
-  const textBlocks = beats.map((beat, index) => {
-    const bbox = bboxForMode(beat.renderMode, width, height, layout);
-    const safeMarginViolation = isSafeMarginViolation(bbox, width, height, quality?.safeArea ?? {});
+  const textBlocks = beats.flatMap((beat, beatIndex) => {
+    return beat.layers.map((layer, layerIndex) => {
+      const mode = layerTypeToMode(layer.type);
+      const bbox = bboxForMode(mode, width, height, layout);
+      const safeMarginViolation = isSafeMarginViolation(bbox, width, height, quality?.safeArea ?? {});
+      const frameOverflow = isFrameOverflow(bbox, width, height);
+      const chars = getLayerCharCount(layer, beat.text);
+      const estimatedFontPx = estimateFontPx(layer, bbox, maxFont);
+      const isTextLayer = layer.type !== "MediaFrame";
+      const renderableLayer = isRenderableLayer(layer.type);
 
-    return {
-      id: `tb-${beat.id}-${index + 1}`,
-      beatId: beat.id,
-      type: beat.renderMode,
-      bbox,
-      safeMarginViolation,
-      chars: beat.textLen,
-    };
+      return {
+        id: `tb-${beat.id}-${beatIndex + 1}-${layerIndex + 1}`,
+        beatId: beat.id,
+        type: mode,
+        layerType: layer.type,
+        renderableLayer,
+        bbox,
+        frameOverflow,
+        safeMarginViolation: isTextLayer ? safeMarginViolation : false,
+        isTextLayer,
+        chars,
+        estimatedFontPx,
+      };
+    });
   });
 
   const manifest = {
@@ -233,11 +366,30 @@ const main = () => {
       renderMode: beat.renderMode,
       transitionType: beat.transitionType,
       motionRecipe: beat.motionRecipe,
+      layerTypes: beat.layerTypes,
+      reactContents: beat.reactContents,
+      renderableLayerCount: beat.renderableLayerCount,
+      hasRenderableElements: beat.hasRenderableElements,
+    })),
+    elementTimeline: beats.map((beat) => ({
+      beatId: beat.id,
+      t0: beat.t0,
+      t1: beat.t1,
+      hasRenderableElements: beat.hasRenderableElements,
     })),
     textBlocks,
     effectsSummary: {
       transitionTypesUsed: unique(beats.map((beat) => beat.transitionType)),
+      transitionTypeCounts: countBy(beats.map((beat) => beat.transitionType)),
       motionRecipesUsed: unique(beats.map((beat) => beat.motionRecipe)),
+      motionRecipeCounts: countBy(beats.map((beat) => beat.motionRecipe)),
+      componentTypesUsed: unique(beats.flatMap((beat) => beat.layerTypes)),
+      componentTypeCounts: countBy(beats.flatMap((beat) => beat.layerTypes)),
+      reactVariantsUsed: unique(beats.flatMap((beat) => beat.reactContents)),
+      reactVariantCounts: countBy(beats.flatMap((beat) => beat.reactContents)),
+      unsupportedLayerTypes: unique(
+        beats.flatMap((beat) => beat.layerTypes.filter((type) => !isRenderableLayer(type))),
+      ),
       beatCut: {
         flashOpacity: toNumber(quality?.beatCut?.flashOpacity, 0.08),
         flashDurationFrames: toNumber(quality?.beatCut?.flashDurationFrames, 2),

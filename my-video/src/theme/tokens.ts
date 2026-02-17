@@ -46,7 +46,7 @@ export const tokens: ThemeTokens = {
     },
   },
   typography: {
-    fontFamilySans: "'Manrope', 'Avenir Next', 'Segoe UI', sans-serif",
+    fontFamilySans: "'SF Pro Display', 'Inter', 'Manrope', 'Avenir Next', 'Segoe UI', sans-serif",
     fontWeightBold: 800,
     sizes: {
       hero: 110,
