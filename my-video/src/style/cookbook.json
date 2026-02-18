@@ -1,0 +1,92 @@
+{
+  "intents": {
+    "hook_title": {
+      "durationSec": 4,
+      "layers": ["HeroTitle"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.92},
+      "constraints": {"maxWords": 8, "maxWordsPerLine": 6, "maxLines": 2}
+    },
+    "problem_compare": {
+      "durationSec": 4,
+      "layers": ["BeforeAfter", "LowerThird"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.82},
+      "constraints": {
+        "maxBullets": 3,
+        "maxWordsPerBullet": 5,
+        "maxWordsPerLine": 7,
+        "maxLines": 2
+      }
+    },
+    "myth_vs_fact": {
+      "durationSec": 4,
+      "layers": ["BeforeAfter", "LowerThird"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.82},
+      "constraints": {
+        "maxBullets": 3,
+        "maxWordsPerBullet": 5,
+        "maxWordsPerLine": 7,
+        "maxLines": 2
+      }
+    },
+    "definition_card": {
+      "durationSec": 4,
+      "layers": ["HeroTitle", "KineticWords"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.78},
+      "constraints": {"maxWordsPerLine": 7, "maxLines": 2}
+    },
+    "analogy_scene": {
+      "durationSec": 4,
+      "layers": ["MediaFrame", "LowerThird"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.76},
+      "constraints": {"maxWordsPerLine": 7, "maxLines": 2}
+    },
+    "how_steps": {
+      "durationSec": 6,
+      "layers": ["Stepper3", "LowerThird"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.78},
+      "constraints": {"maxWordsPerStep": 4, "maxWordsPerLine": 7, "maxLines": 2}
+    },
+    "pipeline_3": {
+      "durationSec": 6,
+      "layers": ["Stepper3", "LowerThird"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.78},
+      "constraints": {"maxWordsPerStep": 4, "maxWordsPerLine": 7, "maxLines": 2}
+    },
+    "pipeline_flow": {
+      "durationSec": 4,
+      "layers": ["Stepper3", "LowerThird"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.74},
+      "constraints": {"maxWordsPerLine": 7, "maxLines": 2}
+    },
+    "example_prompt": {
+      "durationSec": 4,
+      "layers": ["PromptAnswerCard", "LowerThird"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.76},
+      "constraints": {"maxWordsPerLine": 7, "maxLines": 2}
+    },
+    "explain_term": {
+      "durationSec": 4,
+      "layers": ["Callout", "LowerThird"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.75},
+      "constraints": {"maxWordsPerLine": 7, "maxLines": 2}
+    },
+    "zoom_callout": {
+      "durationSec": 4,
+      "layers": ["Callout", "LowerThird"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.75},
+      "constraints": {"maxWordsPerLine": 7, "maxLines": 2}
+    },
+    "recap_slogan": {
+      "durationSec": 4,
+      "layers": ["HeroTitle", "LowerThird"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.84},
+      "constraints": {"maxWordsPerLine": 7, "maxLines": 2}
+    },
+    "outro": {
+      "durationSec": 4,
+      "layers": ["LogoOutro"],
+      "backdrop": {"preset": "gemini", "animate": true, "intensity": 0.9},
+      "constraints": {"maxWordsPerLine": 8, "maxLines": 2}
+    }
+  }
+}

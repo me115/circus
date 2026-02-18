@@ -1,18 +1,12 @@
-# QA Pipeline (Video Quality + Auto-Iteration)
+# QA Pipeline (Render + Evaluate + Optimize)
 
 ## Prerequisites
 
-1. Python 3.9+
-2. `ffmpeg` and `ffprobe` in PATH
-3. Node.js + npm
+1. Node.js + npm
+2. Python 3.9+
+3. `ffmpeg` / `ffprobe` in PATH
 
-On macOS (Homebrew):
-
-```bash
-brew install ffmpeg
-```
-
-Create Python venv and install deps:
+Install Python deps:
 
 ```bash
 python3 -m venv .venv
@@ -20,72 +14,131 @@ source .venv/bin/activate
 pip install -r qa/requirements.txt
 ```
 
-## Commands
+## One-shot Commands
 
-Render from timeline spec (also emits manifest first):
-
-```bash
-npm run render:skill
-```
-
-Evaluate rendered output:
+Render from spec:
 
 ```bash
-npm run qa:eval
+npm run render:skill -- --spec src/specs/vector_db.timeline.json --out out/video.mp4 --manifest out/manifest.json
 ```
 
-Run optimization loop (`render -> evaluate -> patch quality config -> rerender`):
+Evaluate:
 
 ```bash
-npm run qa:loop
+python3 qa/evaluate_video.py \
+  --video out/video.mp4 \
+  --manifest out/manifest.json \
+  --quality src/config/quality.json \
+  --expected_text qa/expected_script.txt \
+  --out out/report.json
 ```
 
-Current loop policy:
+Run optimize loop:
 
-- Gate thresholds in `src/config/quality.json` are treated as locked.
-- Auto-patches target `src/specs/skill.timeline.json` only (rhythm/storyboard/layout/audio-bed volume).
-- Scoring is now design-heavy: composition + motion consistency carry most weight.
+```bash
+python3 qa/optimize_loop.py \
+  --spec src/specs/vector_db.timeline.json \
+  --target 70 \
+  --max_iter 10 \
+  --quality src/config/quality.json
+```
 
-## Files
+## Presets
 
-- `scripts/emit_manifest.ts`: spec + quality -> `out/manifest.json`
-- `scripts/render_from_spec.ts`: SSR render to `out/video.mp4`
-- `qa/evaluate_video.py`: produce `out/report.json`
-- `qa/patcher.py`: generate/apply JSON patch suggestions
-- `qa/optimize_loop.py`: iterative optimization loop
+Stricter 16:9 line-break quality is now built into `src/config/quality.json`.
 
-## report.json structure
+Apple keynote style preset files:
 
-- `gate`: hard checks and pass/fail
-- `score`: total(0-100) and weighted breakdown
-- `metrics.video`: fps/duration/black frame ratio/flicker proxy
-- `metrics.audio`: LUFS/True Peak/LRA
-- `metrics.manifest`: rhythm/text/safe-area/frame-bounds/diversity stats
-- `metrics.manifest.layout`: composition coverage, visual center balance, estimated font readability, lower-half usage
-- `metrics.manifest.no_element_gap`: max no-element gap from timeline metadata
-- `metrics.video.maxNoElementGapSecVideo`: max no-element gap from sampled frame activity (hard gate with manifest gap)
-- `metrics.manifest.diversity`: transition/motion/component-type diversity and repetition ratio
-- `metrics.video.foregroundCoverage*`: sampled foreground occupancy (for "too empty" detection)
-- `metrics.video.foregroundCenterXPctMean`: left/right visual center bias (for horizontal balance)
-- `metrics.manifest.layout.alignment_score`: bbox alignment quality (for PPT-like neatness)
-- `metrics.manifest.layout.sparse_beat_rate`: low-occupancy beat ratio (for anti-sparse pacing)
+- `src/style/presets/apple_keynote_169.stylekit.json`
+- `src/style/presets/apple_keynote_169.motionkit.json`
+- `src/config/quality_presets/apple_keynote_169.json`
 
-## Design Intent
+To apply them as current defaults:
 
-- `60` should mean "usable with minor/no edits", not just technically valid render.
-- High scores now require:
-  - sufficient foreground occupancy (avoid huge empty canvas)
-  - balanced left/right visual center
-  - lower sparse-beat ratio
-  - non-monotone transition/motion usage
-- `metrics.asr`: optional whisper CER (`skipped=true` when whisper missing)
-- `suggestions.patch_suggestions`: machine-readable patches
-- `exit_code`:
-  - `0`: gate passed and score >= target
-  - `2`: gate passed but score below target
-  - `3`: gate failed
+```bash
+cp src/style/presets/apple_keynote_169.stylekit.json src/style/stylekit.json
+cp src/style/presets/apple_keynote_169.motionkit.json src/style/motionkit.json
+cp src/config/quality_presets/apple_keynote_169.json src/config/quality.json
+```
 
-## ffmpeg detection behavior
+## Iteration Order
 
-`qa/evaluate_video.py` validates `ffmpeg` + `ffprobe` before running. If missing,
-it writes a report with `exit_code=3` and a clear error message.
+`optimize_loop.py` runs this sequence per iteration:
+
+1. `scripts/normalize_storyboard.ts` -> `out/spec_iter_k.json`
+2. `scripts/render_from_spec.ts` -> `out/video_iter_k.mp4` + `out/manifest_iter_k.json`
+3. `qa/evaluate_video.py` -> `out/report_iter_k.json`
+4. `qa/patcher.py` logic:
+   - P0: config/style safety fixes
+   - P1: narrative section补齐
+   - P2: density overflow拆分/缩句
+   - P3: motion consistency收敛
+   - P4: rhythm hints
+
+Per-iteration visual diagnostics (new):
+
+- keyframe export: `out/history/iter_XX/keyframes/*.jpg`
+- keyframe regression: `out/history/iter_XX/visual_regression.json` (vs previous iteration)
+- failure atlas: `out/history/iter_XX/failure_atlas.jpg` + `failure_atlas.json`
+
+Each round is archived to `out/history/iter_XX/`:
+
+- `spec.json`
+- `manifest.json`
+- `report.json`
+- `video.mp4`
+- `patch_suggestions.json`
+
+## Metrics and Score
+
+Hard gate (must pass):
+
+- resolution / fps / duration
+- black frame ratio
+- audio true peak + LUFS
+- layout bounds + safe area (0 violation)
+- max no-element gap (`<= 3s`)
+- low-info run / foreground occupancy / alignment checks
+- effective coverage p25 / sparse beat rate (防止“组件过小+大面积留白”)
+- line-break quality (widow/orphan/imbalance)
+- hook line-break hard check (hook段出现单词独占行直接不通过)
+- text hold duration (信息句停留过短会直接失败)
+- fragment line quality (字幕残句，如以 by/the/to 结尾，直接扣分/可gate)
+- text-fill ratio (防止“大卡片+小字体”)
+- low text-fill block rate (防止“卡片很大但字很少”)
+- overlap gates (组件/文字重叠直接拦截)
+- wrap-risk gate (字体过大或文本容器过窄导致异常断行)
+- highlight quality (高亮停用词如 the/and/to 会判为bad highlight)
+- structural beat coverage (流程类组件过小+大片留白会触发失败)
+- backdrop consistency (preset切换频率与强度跳变)
+
+Weighted score (0-100):
+
+- `narrative` (20)
+- `density` (20)
+- `motion_consistency` (20)
+- `rhythm` (20)
+- `audio` (10)
+- `visual_stability` (10)
+
+`density` combines subtitle density + composition occupancy + line-break quality.
+`motion_consistency` combines transition/motion rules + component diversity/repetition + backdrop consistency.
+
+## Report Fields
+
+Key report fields:
+
+- `gate.pass`
+- `gate.checks`
+- `score.raw_total`
+- `score.total` (gate fail -> `0`)
+- `metrics.manifest.narrative_metric`
+- `metrics.manifest.density_metric`
+- `metrics.manifest.motion_consistency_metric`
+- `suggestions.patch_suggestions`
+
+Exit codes:
+
+- `0`: gate pass and score >= target
+- `2`: gate pass but score below target
+- `3`: gate fail

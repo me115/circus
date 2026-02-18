@@ -1,4 +1,5 @@
 import {interpolate, spring, useCurrentFrame, useVideoConfig} from "remotion";
+import {entranceStyle} from "../theme/motion";
 import {tokens, shadowToCss} from "../theme/tokens";
 
 type PromptAnswerCardProps = {
@@ -35,6 +36,7 @@ export const PromptAnswerCard = ({
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
+  const entrance = entranceStyle(frame, fps, startFrame);
 
   let transform = "none";
   let opacity = baseOpacity;
@@ -50,6 +52,8 @@ export const PromptAnswerCard = ({
   if (appearMode === "pop") {
     transform = `translateY(${interpolate(inSpring, [0, 1], [14, 0])}px) scale(${interpolate(inSpring, [0, 1], [0.96, 1])})`;
   }
+  const composedTransform =
+    transform === "none" ? `translateY(${entrance.y}px)` : `${transform} translateY(${entrance.y}px)`;
 
   const typingEnabled = typing?.enabled ?? false;
   const cps = typing?.cps ?? 18;
@@ -69,8 +73,8 @@ export const PromptAnswerCard = ({
         backgroundColor: "rgba(11,18,36,0.82)",
         border: "1px solid rgba(173, 214, 255, 0.24)",
         padding: tokens.spacing.lg,
-        transform,
-        opacity,
+        transform: composedTransform,
+        opacity: opacity * entrance.opacity,
         fontFamily: tokens.typography.fontFamilySans,
         backdropFilter: "blur(12px)",
       }}

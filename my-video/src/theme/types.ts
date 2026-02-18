@@ -32,6 +32,7 @@ export type ShadowTokens = {
 export type TypographyTokens = {
   fontFamilySans: string;
   fontWeightBold: number;
+  lineHeight: number;
   sizes: {
     hero: number;
     title: number;
@@ -56,8 +57,12 @@ export type SpringLikeConfig = {
 
 export type MotionTokens = {
   defaultSpring: SpringLikeConfig;
+  emphasisScalePeak: number;
+  emphasisFrames: number;
   inDurationFrames: number;
   outDurationFrames: number;
+  transitionDurationFrames: number;
+  allowedTransitions: Array<"fade" | "slide">;
 };
 
 export type ThemeTokens = {

@@ -1,6 +1,7 @@
 import "./index.css";
 import {Composition} from "remotion";
 import {GeminiStyleDemo} from "./compositions/GeminiStyleDemo";
+import {ExplainerFromSpec} from "./compositions/ExplainerFromSpec";
 import {SkillExplainer60} from "./compositions/SkillExplainer60";
 
 export const RemotionRoot = () => {
@@ -19,6 +20,14 @@ export const RemotionRoot = () => {
             "A reusable Remotion component set inspired by Gemini-style motion language.",
           keywords: ["Context", "Reasoning", "Tools", "Draft", "Refine", "Deliver"],
         }}
+      />
+      <Composition
+        id="ExplainerFromSpec"
+        component={ExplainerFromSpec}
+        durationInFrames={1800}
+        fps={30}
+        width={1080}
+        height={1920}
       />
       <Composition
         id="SkillExplainer60"

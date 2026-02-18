@@ -1,5 +1,5 @@
 import {AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig} from "remotion";
-import {springIn} from "../theme/motion";
+import {emphasisPulseScale, entranceStyle, springIn} from "../theme/motion";
 import {tokens} from "../theme/tokens";
 
 type HeroTitleProps = {
@@ -47,6 +47,8 @@ export const HeroTitle = ({
   const {fps, width} = useVideoConfig();
 
   const titleIn = springIn(frame, fps, enterDelayFrames);
+  const entrance = entranceStyle(frame, fps, enterDelayFrames);
+  const pulse = emphasisPulseScale(frame, enterDelayFrames + 24);
   const subtitleIn = springIn(frame, fps, enterDelayFrames + 10);
 
   const titleOpacity = interpolate(titleIn, [0, 1], [0, 1], {
@@ -78,7 +80,7 @@ export const HeroTitle = ({
           maxWidth: Math.floor(width * 0.8),
           textAlign: align,
           transform: `translateY(${titleY}px) scale(${titleScale})`,
-          opacity: titleOpacity,
+          opacity: titleOpacity * entrance.opacity,
         }}
       >
         <h1
@@ -87,12 +89,13 @@ export const HeroTitle = ({
             fontSize: tokens.typography.sizes.hero,
             fontWeight: tokens.typography.fontWeightBold,
             letterSpacing: -1.8,
-            lineHeight: 0.95,
+            lineHeight: tokens.typography.lineHeight,
             display: "-webkit-box",
             WebkitLineClamp: 2,
             WebkitBoxOrient: "vertical",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            transform: `scale(${pulse})`,
           }}
         >
           {renderTitleWords(title, accentWord)}

@@ -5,7 +5,16 @@ export type BackdropConfig = {
 };
 
 export type SceneLayer = {
-  type: "HeroTitle" | "MediaFrame" | "LowerThird" | "KineticWords" | "PromptAnswerCard" | "LogoOutro";
+  type:
+    | "HeroTitle"
+    | "MediaFrame"
+    | "LowerThird"
+    | "KineticWords"
+    | "PromptAnswerCard"
+    | "LogoOutro"
+    | "BeforeAfter"
+    | "Stepper3"
+    | "Callout";
   props?: Record<string, unknown>;
 };
 
@@ -36,6 +45,7 @@ export type LayoutConfig = {
   mediaPadYPct?: number;
   kineticYPct?: number;
   lowerThirdYPct?: number;
+  lowerThirdMaxWidthPct?: number;
   cardYPct?: number;
   cardWidthPct?: number;
   cardHeightPct?: number;
@@ -48,6 +58,8 @@ export type SkillTimelineSpec = {
   meta?: {
     compositionId?: string;
     composition_id?: string;
+    stylePreset?: string;
+    style_preset?: string;
     fps?: number;
     width?: number;
     height?: number;

@@ -5,7 +5,7 @@ import json
 import os
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 Patch = Dict[str, Any]
 
@@ -45,48 +45,254 @@ def _add_patch(
     )
 
 
-def _truncate_text(text: str, max_len: int) -> str:
-    text = (text or "").strip()
-    if len(text) <= max_len:
-        return text
-
-    words = text.split()
-    if not words:
-        return text[:max_len].rstrip()
-
-    acc: List[str] = []
-    for word in words:
-        tentative = " ".join([*acc, word]).strip()
-        if len(tentative) > max_len:
-            break
-        acc.append(word)
-
-    if not acc:
-        return text[:max_len].rstrip()
-
-    result = " ".join(acc).rstrip(".,;:!? ")
-    if len(result) <= max_len:
-        return result
-    return result[:max_len].rstrip()
-
-
-def _estimate_lines_count(text: str, max_chars_per_line: int) -> int:
-    safe_max = max(1, int(max_chars_per_line))
-    text_len = len((text or "").strip())
-    if text_len <= 0:
-        return 1
-    return max(1, (text_len + safe_max - 1) // safe_max)
-
-
 def _dedupe_patches(patches: List[Patch]) -> List[Patch]:
     seen = set()
     result: List[Patch] = []
     for patch in patches:
-        key = (patch.get("target_file"), patch.get("path"), json.dumps(patch.get("value"), sort_keys=True))
+        key = (
+            patch.get("target_file"),
+            patch.get("path"),
+            patch.get("op", "replace"),
+            json.dumps(patch.get("value"), sort_keys=True),
+        )
         if key in seen:
             continue
         seen.add(key)
         result.append(patch)
+    return result
+
+
+def _next_beat_id(beats: List[Dict[str, Any]]) -> str:
+    nums: List[int] = []
+    for beat in beats:
+        bid = str(beat.get("id") or "")
+        if bid.startswith("b") and bid[1:].isdigit():
+            nums.append(int(bid[1:]))
+    if not nums:
+        return "b01"
+    return f"b{max(nums) + 1:02d}"
+
+
+def _truncate_line_by_words(line: str, max_words: int) -> str:
+    words = [w for w in (line or "").replace("\n", " ").split(" ") if w.strip()]
+    trailing_stopwords = {
+        "a",
+        "an",
+        "and",
+        "as",
+        "at",
+        "by",
+        "for",
+        "from",
+        "in",
+        "into",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "to",
+        "with",
+    }
+    kept = words if len(words) <= max_words else words[:max_words]
+    while len(kept) > 3:
+        tail = kept[-1].strip(".,;:!?\"'()[]{}").lower()
+        if tail not in trailing_stopwords:
+            break
+        kept = kept[:-1]
+    return " ".join(kept).rstrip(".,;:!?") + "."
+
+
+def _tighten_hook_line(line: str, max_words: int) -> str:
+    text = (line or "").strip()
+    lowered = text.lower()
+    if "meaning" in lowered and "keyword" in lowered:
+        candidate = "Search by meaning, not keywords."
+        if len([w for w in candidate.split(" ") if w.strip()]) <= max_words:
+            return candidate
+    return _truncate_line_by_words(text, max_words)
+
+
+def _split_overflow_beats(
+    beats: List[Dict[str, Any]],
+    overflow_ids: List[str],
+    max_words: int,
+    strict_line_break_ids: Optional[List[str]] = None,
+    strict_max_words: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    if not beats:
+        return beats
+
+    overflow_set = set(overflow_ids)
+    strict_set = set(strict_line_break_ids or [])
+    strict_word_limit = int(strict_max_words or max_words)
+    updated: List[Dict[str, Any]] = []
+    for beat in beats:
+        beat_id = str(beat.get("id") or "")
+        line = str(beat.get("line") or beat.get("text") or "").strip()
+        t0 = _safe_float(beat.get("t0"), 0.0)
+        t1 = _safe_float(beat.get("t1"), t0)
+        dur = max(0.2, t1 - t0)
+
+        if beat_id not in overflow_set:
+            updated.append(beat)
+            continue
+
+        words = [w for w in line.split() if w.strip()]
+        if beat_id in strict_set and len(words) > strict_word_limit:
+            intent = str(beat.get("intent") or "").lower()
+            is_hook_intent = "hook" in intent
+            if (not is_hook_intent) and dur >= 3.5 and len(words) >= strict_word_limit + 1:
+                mid = t0 + dur / 2.0
+                half = max(1, len(words) // 2)
+                line_a = _truncate_line_by_words(" ".join(words[:half]), strict_word_limit)
+                line_b = _truncate_line_by_words(" ".join(words[half:]), strict_word_limit)
+                updated.append(
+                    {
+                        **beat,
+                        "line": line_a,
+                        "text": line_a,
+                        "t0": round(t0, 3),
+                        "t1": round(mid, 3),
+                    }
+                )
+                updated.append(
+                    {
+                        **beat,
+                        "id": f"{beat_id}_s2",
+                        "line": line_b,
+                        "text": line_b,
+                        "t0": round(mid, 3),
+                        "t1": round(t1, 3),
+                    }
+                )
+            else:
+                tightened = (
+                    _tighten_hook_line(line, strict_word_limit)
+                    if is_hook_intent
+                    else _truncate_line_by_words(line, strict_word_limit)
+                )
+                updated.append(
+                    {
+                        **beat,
+                        "line": tightened,
+                        "text": tightened,
+                    }
+                )
+            continue
+
+        if dur >= 3.5 and len(words) > max_words:
+            mid = t0 + dur / 2.0
+            half = max(1, len(words) // 2)
+            line_a = " ".join(words[:half])
+            line_b = " ".join(words[half:])
+            updated.append({
+                **beat,
+                "line": _truncate_line_by_words(line_a, max_words),
+                "text": _truncate_line_by_words(line_a, max_words),
+                "t0": round(t0, 3),
+                "t1": round(mid, 3),
+            })
+            updated.append({
+                **beat,
+                "id": f"{beat_id}_s2",
+                "line": _truncate_line_by_words(line_b, max_words),
+                "text": _truncate_line_by_words(line_b, max_words),
+                "t0": round(mid, 3),
+                "t1": round(t1, 3),
+            })
+        else:
+            shortened = _truncate_line_by_words(line, max_words)
+            updated.append({
+                **beat,
+                "line": shortened,
+                "text": shortened,
+            })
+
+    return updated
+
+
+def _normalize_backdrops(
+    beats: List[Dict[str, Any]],
+    target_preset: str = "gemini",
+    max_intensity_step: float = 0.08,
+) -> List[Dict[str, Any]]:
+    if not beats:
+        return beats
+
+    updated: List[Dict[str, Any]] = []
+    prev_intensity = 0.82
+    for beat in beats:
+        beat_copy = dict(beat)
+        scene = beat_copy.get("scene")
+        scene = dict(scene) if isinstance(scene, dict) else {}
+        backdrop = scene.get("backdrop")
+        backdrop = dict(backdrop) if isinstance(backdrop, dict) else {}
+        raw_intensity = _safe_float(backdrop.get("intensity"), prev_intensity)
+        clamped = max(0.55, min(0.95, raw_intensity))
+        if abs(clamped - prev_intensity) > max_intensity_step:
+            clamped = prev_intensity + max_intensity_step if clamped > prev_intensity else prev_intensity - max_intensity_step
+        clamped = max(0.55, min(0.95, clamped))
+        prev_intensity = clamped
+        scene["backdrop"] = {
+            "preset": target_preset,
+            "animate": True,
+            "intensity": round(clamped, 3),
+        }
+        beat_copy["scene"] = scene
+        updated.append(beat_copy)
+    return updated
+
+
+def _ensure_structure_sections(
+    beats: List[Dict[str, Any]],
+    missing_sections: List[str],
+) -> List[Dict[str, Any]]:
+    if not beats:
+        return beats
+
+    result = list(beats)
+    next_id = _next_beat_id(result)
+
+    def _push_with_new_id(payload: Dict[str, Any]) -> None:
+        nonlocal next_id
+        payload = dict(payload)
+        payload["id"] = next_id
+        result.append(payload)
+        current = int(next_id[1:]) if next_id[1:].isdigit() else 1
+        next_id = f"b{current + 1:02d}"
+
+    if "hook" in missing_sections:
+        _push_with_new_id(
+            {
+                "t0": 0.0,
+                "t1": 4.0,
+                "intent": "hook_title",
+                "line": "Search by meaning, not just keywords.",
+            }
+        )
+
+    if "example" in missing_sections:
+        _push_with_new_id(
+            {
+                "t0": 40.0,
+                "t1": 44.0,
+                "intent": "example_prompt",
+                "line": "Example: ask one question and retrieve the best docs.",
+            }
+        )
+
+    if "recap" in missing_sections:
+        _push_with_new_id(
+            {
+                "t0": 52.0,
+                "t1": 56.0,
+                "intent": "recap_slogan",
+                "line": "Keywords find matches. Vectors find intent.",
+            }
+        )
+
+    result.sort(key=lambda b: _safe_float(b.get("t0"), 0.0))
     return result
 
 
@@ -97,143 +303,485 @@ def generate_patch_suggestions(
     quality_path: str = "src/config/quality.json",
     spec_path: str = "src/specs/skill.timeline.json",
 ) -> List[Patch]:
-    # Real-improvement mode: patch spec/layout/audio content only.
     patches: List[Patch] = []
 
-    metrics = report.get("metrics", {})
-    manifest = metrics.get("manifest", {})
-    audio = metrics.get("audio", {})
+    metrics = report.get("metrics", {}) if isinstance(report, dict) else {}
+    manifest = metrics.get("manifest", {}) if isinstance(metrics.get("manifest"), dict) else {}
+    video_metrics = metrics.get("video", {}) if isinstance(metrics.get("video"), dict) else {}
+    audio = metrics.get("audio", {}) if isinstance(metrics.get("audio"), dict) else {}
+    gate_checks = _deep_get(report, "gate", "checks", default={})
+    gate_checks = gate_checks if isinstance(gate_checks, dict) else {}
 
-    beats = list(spec.get("beats") or [])
+    stylekit_path = "src/style/stylekit.json"
+    motionkit_path = "src/style/motionkit.json"
 
-    # 1) Safe area: move layout upward / inward (spec layout), never relax gate thresholds.
+    beats = list(spec.get("beats") or []) if isinstance(spec, dict) else []
+    density_metric = manifest.get("density_metric", {}) if isinstance(manifest, dict) else {}
+    narrative_metric = manifest.get("narrative_metric", {}) if isinstance(manifest, dict) else {}
+    motion_metric = manifest.get("motion_consistency_metric", {}) if isinstance(manifest, dict) else {}
+    layout_metric = manifest.get("layout", {}) if isinstance(manifest, dict) else {}
+
+    # P0: 安全与合规
     safe_violations = int(_deep_get(manifest, "safe", "violations", default=0) or 0)
-    frame_violations = int(_deep_get(manifest, "bounds", "violations", default=0) or 0)
-    if safe_violations > 0:
-        current_layout = spec.get("layout") or {}
-        lower_y = _safe_float(current_layout.get("lowerThirdYPct"), 0.82)
-        kinetic_y = _safe_float(current_layout.get("kineticYPct"), 0.76)
-        card_y = _safe_float(current_layout.get("cardYPct"), 0.32)
-        media_pad_y = _safe_float(current_layout.get("mediaPadYPct"), 0.13)
+    video_w = _safe_float(_deep_get(quality, "video", "width", default=1920), 1920)
+    video_h = _safe_float(_deep_get(quality, "video", "height", default=1080), 1080)
+    is_portrait = video_h > video_w
+    bottom_safe = 0.22 if is_portrait else 0.12
+    if safe_violations > 0 or gate_checks.get("safe_area") is False:
+        lower_third_y = 0.74 if is_portrait else 0.7
+        _add_patch(
+            patches,
+            quality_path,
+            "/layout/lowerThirdYPct",
+            lower_third_y,
+            "P0 safe-area violation: move lower-third upward.",
+        )
+        _add_patch(
+            patches,
+            quality_path,
+            "/layout/kineticYPct",
+            0.58,
+            "P0 safe-area violation: move kinetic text upward.",
+        )
+        _add_patch(
+            patches,
+            stylekit_path,
+            "/safeArea/bottomPct",
+            bottom_safe,
+            "P0 safe-area violation: keep stylekit bottom safe area consistent.",
+        )
+        _add_patch(
+            patches,
+            quality_path,
+            "/safeArea/marginBottomPct",
+            bottom_safe,
+            "P0 safe-area violation: align QA safe area with stylekit.",
+        )
 
-        target_lower = min(lower_y, 0.70)
-        target_kinetic = min(kinetic_y, 0.64)
-        target_card = min(card_y, 0.22)
-        target_media_pad_y = max(media_pad_y, 0.16)
-
-        if abs(target_lower - lower_y) > 1e-6:
+    lufs = audio.get("input_i_lufs")
+    min_lufs = _safe_float(_deep_get(quality, "audio", "minLUFS", default=-18.0), -18.0)
+    max_lufs = _safe_float(_deep_get(quality, "audio", "maxLUFS", default=-14.0), -14.0)
+    if lufs is not None:
+        lufs_val = _safe_float(lufs, -16.0)
+        if lufs_val < min_lufs or lufs_val > max_lufs:
             _add_patch(
                 patches,
-                spec_path,
-                "/layout/lowerThirdYPct",
-                round(target_lower, 4),
-                "Safe-area gate failed: move lower-third upward in spec layout.",
+                quality_path,
+                "/postAudioNormalize/enabled",
+                True,
+                "P0 loudness out of range: enable post loudnorm normalization.",
             )
 
-        if abs(target_kinetic - kinetic_y) > 1e-6:
+    max_low_info_run = _safe_float(_deep_get(report, "metrics", "video", "maxLowInfoRunSec", default=0.0), 0.0)
+    max_low_info_run_gate = _safe_float(_deep_get(quality, "limits", "maxLowInfoRunSecGate", default=1.5), 1.5)
+    low_info_beat_ids = _deep_get(report, "metrics", "video", "beatLowInfoBeatIds", default=[])
+    low_info_beat_ids = [str(bid) for bid in (low_info_beat_ids or []) if str(bid).strip()]
+    if max_low_info_run > max_low_info_run_gate and beats:
+        if low_info_beat_ids:
+            patched_beats: List[Dict[str, Any]] = []
+            target_ids = set(low_info_beat_ids)
+            for beat in beats:
+                beat_id = str(beat.get("id") or "")
+                if beat_id in target_ids:
+                    patched_beats.append({**beat, "intent": "pipeline_flow"})
+                else:
+                    patched_beats.append(beat)
             _add_patch(
                 patches,
                 spec_path,
-                "/layout/kineticYPct",
-                round(target_kinetic, 4),
-                "Safe-area gate failed: move kinetic text band upward in spec layout.",
+                "/beats",
+                patched_beats,
+                "P0 low-info run detected: upgrade weak beats to pipeline_flow scenes.",
             )
-
-        if abs(target_card - card_y) > 1e-6:
+        else:
             _add_patch(
                 patches,
-                spec_path,
-                "/layout/cardYPct",
-                round(target_card, 4),
-                "Safe-area gate failed: move prompt/answer card upward in spec layout.",
-            )
-
-        if abs(target_media_pad_y - media_pad_y) > 1e-6:
-            _add_patch(
-                patches,
-                spec_path,
+                quality_path,
                 "/layout/mediaPadYPct",
-                round(target_media_pad_y, 4),
-                "Safe-area gate failed: increase media vertical padding in spec layout.",
+                0.1,
+                "P0 low-info run detected: enlarge media area vertically.",
             )
 
-    if frame_violations > 0:
-        current_layout = spec.get("layout") or {}
-        media_pad_x = _safe_float(current_layout.get("mediaPadXPct"), 0.085)
-        media_pad_y = _safe_float(current_layout.get("mediaPadYPct"), 0.13)
-        hero_w = _safe_float(current_layout.get("heroMaxWidthPct"), 0.78)
-        card_w = _safe_float(current_layout.get("cardWidthPct"), 0.72)
-        card_h = _safe_float(current_layout.get("cardHeightPct"), 0.44)
-
+    beat_intents = _deep_get(manifest, "beat_intents", default={})
+    beat_intents = beat_intents if isinstance(beat_intents, dict) else {}
+    beat_cov_layout = layout_metric.get("beat_effective_coverage_map")
+    beat_cov_layout = beat_cov_layout if isinstance(beat_cov_layout, dict) else {}
+    beat_cov_video = video_metrics.get("beatForegroundCoverageP25")
+    beat_cov_video = beat_cov_video if isinstance(beat_cov_video, dict) else {}
+    beat_cov = beat_cov_layout or beat_cov_video
+    min_structural_beat_cov_gate = _safe_float(
+        _deep_get(quality, "limits", "minStructuralBeatCoverageP25Gate", default=0.045), 0.045
+    )
+    structural_intents = {"how_steps", "pipeline_flow", "pipeline_3", "problem_compare"}
+    low_structural_ids: List[str] = []
+    for beat_id, intent in beat_intents.items():
+        if str(intent) not in structural_intents:
+            continue
+        cov = _safe_float(beat_cov.get(str(beat_id)), 0.0)
+        if cov < min_structural_beat_cov_gate:
+            low_structural_ids.append(str(beat_id))
+    if low_structural_ids:
         _add_patch(
             patches,
-            spec_path,
-            "/layout/mediaPadXPct",
-            round(min(0.14, media_pad_x + 0.02), 4),
-            "Frame-bounds gate failed: increase horizontal padding to avoid overflow.",
-        )
-        _add_patch(
-            patches,
-            spec_path,
+            quality_path,
             "/layout/mediaPadYPct",
-            round(min(0.18, media_pad_y + 0.02), 4),
-            "Frame-bounds gate failed: increase vertical padding to avoid overflow.",
+            0.1,
+            "P0 structural coverage low: enlarge media container in Y axis.",
         )
         _add_patch(
             patches,
-            spec_path,
-            "/layout/heroMaxWidthPct",
-            round(max(0.68, hero_w - 0.04), 4),
-            "Frame-bounds gate failed: reduce hero width to keep components inside frame.",
-        )
-        _add_patch(
-            patches,
-            spec_path,
+            quality_path,
             "/layout/cardWidthPct",
-            round(max(0.62, card_w - 0.04), 4),
-            "Frame-bounds gate failed: reduce prompt card width to avoid clipping.",
+            0.68,
+            "P0 structural coverage low: enlarge card width in landscape.",
         )
-        _add_patch(
-            patches,
-            spec_path,
-            "/layout/cardHeightPct",
-            round(max(0.34, card_h - 0.03), 4),
-            "Frame-bounds gate failed: reduce prompt card height to avoid clipping.",
-        )
-
-    no_element_gap = manifest.get("no_element_gap", {})
-    no_element_violations = int(no_element_gap.get("violating_gap_count", 0) or 0)
-    if no_element_violations > 0 and beats:
-        default_layers = [
-            {
-                "type": "MediaFrame",
-                "props": {
-                    "kind": "react",
-                    "reactContent": "SemanticOrbitBroll",
-                    "fallbackReactContent": "PipelineBlocksBroll",
-                },
-            },
-            {
-                "type": "LowerThird",
-                "props": {"title": "Visual beat", "source": "", "durationSec": 4, "align": "left"},
-            },
-        ]
-        for idx, beat in enumerate(beats):
-            scene = beat.get("scene") if isinstance(beat, dict) else {}
-            scene = scene if isinstance(scene, dict) else {}
-            layers = scene.get("layers")
-            if isinstance(layers, list) and len(layers) > 0:
-                continue
+        if beats:
+            replace_map = {
+                "pipeline_flow": "how_steps",
+                "pipeline_3": "how_steps",
+            }
+            low_set = set(low_structural_ids)
+            patched_beats: List[Dict[str, Any]] = []
+            for beat in beats:
+                beat_id = str(beat.get("id") or "")
+                intent = str(beat.get("intent") or "")
+                if beat_id in low_set and intent in replace_map:
+                    patched_beats.append({**beat, "intent": replace_map[intent]})
+                else:
+                    patched_beats.append(beat)
             _add_patch(
                 patches,
                 spec_path,
-                f"/beats/{idx}/scene/layers",
-                deepcopy(default_layers),
-                "No-element gap gate failed: inject baseline visual layers to avoid blank timeline spans.",
-                op="add",
+                "/beats",
+                patched_beats,
+                "P0 structural coverage low beats: switch to denser scene templates.",
             )
 
-    # 2) Rhythm: adjust beat generation strategy in spec only.
+    sparse_rate = _safe_float(layout_metric.get("sparse_beat_rate"), 1.0)
+    max_sparse_gate = _safe_float(
+        _deep_get(quality, "limits", "maxSparseBeatRateGate", default=0.35), 0.35
+    )
+    effective_cov_p25 = _safe_float(layout_metric.get("effective_coverage_p25"), 0.0)
+    min_effective_cov_gate = _safe_float(
+        _deep_get(quality, "limits", "minEffectiveCoverageP25Gate", default=0.2), 0.2
+    )
+    sparse_beat_ids = density_metric.get("sparse_beats", []) if isinstance(density_metric, dict) else []
+    sparse_beat_ids = [str(bid) for bid in sparse_beat_ids if str(bid).strip()]
+
+    if (sparse_rate > max_sparse_gate or effective_cov_p25 < min_effective_cov_gate) and beats:
+        _add_patch(
+            patches,
+            quality_path,
+            "/layout/mediaPadYPct",
+            0.1,
+            "P0 sparse layout detected: increase media vertical footprint.",
+        )
+        _add_patch(
+            patches,
+            quality_path,
+            "/layout/cardHeightPct",
+            0.5,
+            "P0 sparse layout detected: increase card height.",
+        )
+        if sparse_beat_ids:
+            replace_map = {
+                "pipeline_flow": "how_steps",
+                "pipeline_3": "how_steps",
+                "definition_card": "analogy_scene",
+            }
+            sparse_id_set = set(sparse_beat_ids)
+            patched_beats: List[Dict[str, Any]] = []
+            for beat in beats:
+                beat_id = str(beat.get("id") or "")
+                intent = str(beat.get("intent") or "")
+                if beat_id in sparse_id_set and intent in replace_map:
+                    patched_beats.append({**beat, "intent": replace_map[intent]})
+                else:
+                    patched_beats.append(beat)
+            _add_patch(
+                patches,
+                spec_path,
+                "/beats",
+                patched_beats,
+                "P0 sparse beats detected: switch weak intents to denser scene templates.",
+            )
+
+    text_fill_p25 = _safe_float(layout_metric.get("text_fill_ratio_p25"), 0.0)
+    min_text_fill_p25_gate = _safe_float(
+        _deep_get(quality, "limits", "minTextFillRatioP25Gate", default=0.08), 0.08
+    )
+    low_text_fill_beat_rate = _safe_float(layout_metric.get("low_text_fill_beat_rate"), 1.0)
+    max_low_text_fill_beat_rate_gate = _safe_float(
+        _deep_get(quality, "limits", "maxLowTextFillBeatRateGate", default=0.35), 0.35
+    )
+    low_text_fill_block_rate = _safe_float(layout_metric.get("low_text_fill_block_rate"), 1.0)
+    max_low_text_fill_block_rate_gate = _safe_float(
+        _deep_get(quality, "limits", "maxLowTextFillBlockRateGate", default=0.28), 0.28
+    )
+    low_text_fill_ids = layout_metric.get("low_text_fill_beat_ids", [])
+    low_text_fill_ids = [str(bid) for bid in (low_text_fill_ids or []) if str(bid).strip()]
+    if (
+        text_fill_p25 < min_text_fill_p25_gate
+        or low_text_fill_beat_rate > max_low_text_fill_beat_rate_gate
+        or low_text_fill_block_rate > max_low_text_fill_block_rate_gate
+    ):
+        _add_patch(
+            patches,
+            stylekit_path,
+            "/typography/title",
+            {"$scale": 1.02},
+            "P0 small text ratio: increase title size to improve component readability.",
+        )
+        _add_patch(
+            patches,
+            stylekit_path,
+            "/typography/body",
+            {"$scale": 1.03},
+            "P0 small text ratio: increase body size to improve text fill.",
+        )
+        _add_patch(
+            patches,
+            quality_path,
+            "/layout/cardHeightPct",
+            0.28,
+            "P0 low text fill: reduce card height in 16:9 to avoid oversized empty blocks.",
+        )
+        if low_text_fill_ids and beats:
+            replace_map = {
+                "definition_card": "analogy_scene",
+            }
+            low_fill_set = set(low_text_fill_ids)
+            patched_beats: List[Dict[str, Any]] = []
+            for beat in beats:
+                beat_id = str(beat.get("id") or "")
+                intent = str(beat.get("intent") or "")
+                if beat_id in low_fill_set and intent in replace_map:
+                    patched_beats.append({**beat, "intent": replace_map[intent]})
+                else:
+                    patched_beats.append(beat)
+            _add_patch(
+                patches,
+                spec_path,
+                "/beats",
+                patched_beats,
+                "P0 low text-fill beats: switch to denser scene templates.",
+            )
+
+    highlight_metric = manifest.get("highlight", {}) if isinstance(manifest, dict) else {}
+    bad_highlight_ids = highlight_metric.get("bad_highlight_beat_ids", [])
+    bad_highlight_ids = [str(bid) for bid in (bad_highlight_ids or []) if str(bid).strip()]
+    if bad_highlight_ids and beats:
+        replace_map = {
+            "definition_card": "analogy_scene",
+            "hook_title": "hook_title",
+            "recap_slogan": "recap_slogan",
+        }
+        low_set = set(bad_highlight_ids)
+        patched_beats: List[Dict[str, Any]] = []
+        for beat in beats:
+            beat_id = str(beat.get("id") or "")
+            intent = str(beat.get("intent") or "")
+            if beat_id in low_set and intent in replace_map:
+                patched_beats.append({**beat, "intent": replace_map[intent]})
+            else:
+                patched_beats.append(beat)
+        _add_patch(
+            patches,
+            spec_path,
+            "/beats",
+            patched_beats,
+            "P0 highlight quality bad: switch risky beats to non-stopword highlight templates.",
+        )
+
+    overlap_beat_rate = _safe_float(layout_metric.get("overlap_beat_rate"), 0.0)
+    max_overlap_beat_rate_gate = _safe_float(
+        _deep_get(quality, "limits", "maxOverlapBeatRateGate", default=0.08), 0.08
+    )
+    severe_overlap_beat_rate = _safe_float(layout_metric.get("severe_overlap_beat_rate"), 0.0)
+    max_severe_overlap_beat_rate_gate = _safe_float(
+        _deep_get(quality, "limits", "maxSevereOverlapBeatRateGate", default=0.0), 0.0
+    )
+    wrap_risk_beat_rate = _safe_float(layout_metric.get("wrap_risk_beat_rate"), 0.0)
+    max_wrap_risk_beat_rate_gate = _safe_float(
+        _deep_get(quality, "limits", "maxWrapRiskBeatRateGate", default=0.14), 0.14
+    )
+    if (
+        overlap_beat_rate > max_overlap_beat_rate_gate
+        or severe_overlap_beat_rate > max_severe_overlap_beat_rate_gate
+    ):
+        _add_patch(
+            patches,
+            quality_path,
+            "/layout/lowerThirdYPct",
+            0.76,
+            "P0 overlap risk: move lower-third further down in 16:9.",
+        )
+        _add_patch(
+            patches,
+            quality_path,
+            "/layout/lowerThirdMaxWidthPct",
+            0.7,
+            "P0 overlap risk: increase lower-third width to reduce vertical stacking.",
+        )
+        _add_patch(
+            patches,
+            quality_path,
+            "/layout/cardHeightPct",
+            0.28,
+            "P0 overlap risk: reduce tall card height to clear lower-third area.",
+        )
+    if wrap_risk_beat_rate > max_wrap_risk_beat_rate_gate:
+        _add_patch(
+            patches,
+            stylekit_path,
+            "/typography/body",
+            {"$scale": 0.96},
+            "P0 wrap risk: slightly reduce body font size to avoid aggressive line breaks.",
+        )
+        _add_patch(
+            patches,
+            quality_path,
+            "/layout/lowerThirdMaxWidthPct",
+            0.72,
+            "P0 wrap risk: widen lower-third text area.",
+        )
+
+    # P1: 叙事结构
+    missing_sections = narrative_metric.get("missing_sections", []) if isinstance(narrative_metric, dict) else []
+    missing_sections = [str(s) for s in missing_sections if str(s).strip()]
+    if missing_sections and beats:
+        updated_beats = _ensure_structure_sections(beats, missing_sections)
+        _add_patch(
+            patches,
+            spec_path,
+            "/beats",
+            updated_beats,
+            f"P1 narrative missing sections: insert {', '.join(missing_sections)} beats.",
+        )
+
+    # P2: 信息密度
+    overflow_ids = density_metric.get("overflow_beats", []) if isinstance(density_metric, dict) else []
+    overflow_ids = [str(bid) for bid in overflow_ids if str(bid).strip()]
+    bad_line_break_ids = (
+        density_metric.get("bad_line_break_beats", []) if isinstance(density_metric, dict) else []
+    )
+    bad_line_break_ids = [str(bid) for bid in bad_line_break_ids if str(bid).strip()]
+    if bad_line_break_ids:
+        overflow_ids = sorted(set(overflow_ids).union(set(bad_line_break_ids)))
+    if overflow_ids and beats:
+        max_words = int(_deep_get(quality, "limits", "maxWordsPerLine", default=7) or 7)
+        max_lines = int(_deep_get(quality, "limits", "maxLines", default=2) or 2)
+        strict_limit = max(4, max_words - 1) if bad_line_break_ids else max_words
+        updated = _split_overflow_beats(
+            beats,
+            overflow_ids,
+            max_words * max_lines,
+            strict_line_break_ids=bad_line_break_ids,
+            strict_max_words=strict_limit,
+        )
+        _add_patch(
+            patches,
+            spec_path,
+            "/beats",
+            updated,
+            "P2 density overflow: split long beats or shorten lines by words.",
+        )
+
+    short_hold_beat_rate = _safe_float(
+        density_metric.get("short_hold_beat_rate") if isinstance(density_metric, dict) else 0.0,
+        0.0,
+    )
+    max_short_hold_beat_rate_gate = _safe_float(
+        _deep_get(quality, "limits", "maxShortHoldBeatRateGate", default=0.12), 0.12
+    )
+    if short_hold_beat_rate > max_short_hold_beat_rate_gate:
+        _add_patch(
+            patches,
+            spec_path,
+            "/meta/hookEnabled",
+            False,
+            "P2 text hold too short: disable overlay hook so first beat remains readable.",
+        )
+        _add_patch(
+            patches,
+            spec_path,
+            "/meta/hookDurationSec",
+            2.0,
+            "P2 text hold too short: cap hook overlay duration.",
+        )
+
+    # P3: 动效一致性
+    transition_count = int(motion_metric.get("transition_count", 0) or 0)
+    motion_count = int(motion_metric.get("motion_count", 0) or 0)
+    flash_opacity = _safe_float(motion_metric.get("flash_opacity"), 0.08)
+
+    if transition_count > 2:
+        _add_patch(
+            patches,
+            motionkit_path,
+            "/recipes/transition/types",
+            ["fade", "slide"],
+            "P3 motion consistency: keep only fade/slide transitions.",
+        )
+        if beats:
+            compact = []
+            for idx, beat in enumerate(beats):
+                compact.append({**beat, "transitionType": "fade" if idx % 2 == 0 else "slide"})
+            _add_patch(
+                patches,
+                spec_path,
+                "/beats",
+                compact,
+                "P3 motion consistency: enforce fade/slide alternation in beats.",
+            )
+
+    if motion_count > 3 and beats:
+        compact = []
+        seq = ["entrance", "emphasis", "transition"]
+        for idx, beat in enumerate(beats):
+            compact.append({**beat, "motionRecipe": seq[idx % len(seq)]})
+        _add_patch(
+            patches,
+            spec_path,
+            "/beats",
+            compact,
+            "P3 motion consistency: enforce 3 canonical motion recipes.",
+        )
+
+    if flash_opacity > 0.1:
+        _add_patch(
+            patches,
+            quality_path,
+            "/beatCut/flashOpacity",
+            0.08,
+            "P3 motion consistency: reduce beatCut flash opacity.",
+        )
+    backdrop_preset_count = int(motion_metric.get("backdrop_preset_count", 0) or 0)
+    backdrop_switch_rate = _safe_float(motion_metric.get("backdrop_switch_rate"), 0.0)
+    backdrop_intensity_jump = _safe_float(motion_metric.get("backdrop_max_intensity_jump"), 0.0)
+    max_backdrop_preset_count = int(
+        _deep_get(quality, "limits", "maxBackdropPresetCountGate", default=1) or 1
+    )
+    max_backdrop_switch_rate = _safe_float(
+        _deep_get(quality, "limits", "maxBackdropSwitchRateGate", default=0.2), 0.2
+    )
+    max_backdrop_jump = _safe_float(
+        _deep_get(quality, "limits", "maxBackdropIntensityJumpGate", default=0.16), 0.16
+    )
+    if (
+        backdrop_preset_count > max_backdrop_preset_count
+        or backdrop_switch_rate > max_backdrop_switch_rate
+        or backdrop_intensity_jump > max_backdrop_jump
+    ) and beats:
+        _add_patch(
+            patches,
+            spec_path,
+            "/beats",
+            _normalize_backdrops(beats),
+            "P3 backdrop consistency: unify preset and smooth intensity jumps.",
+        )
+
+    # P4: 节奏
     pct_in_range = _safe_float(_deep_get(manifest, "beat", "pct_in_range", default=1.0), 1.0)
     if pct_in_range < 0.8:
         _add_patch(
@@ -241,509 +789,15 @@ def generate_patch_suggestions(
             spec_path,
             "/generation/beatTargetSec",
             3.0,
-            "Rhythm hit-rate is low: retarget beats around 3.0s in spec.",
+            "P4 rhythm low hit-rate: set beatTargetSec=3.0.",
         )
         _add_patch(
             patches,
             spec_path,
             "/generation/splitStrategy",
             "balanced",
-            "Rhythm hit-rate is low: use balanced split strategy in spec.",
+            "P4 rhythm low hit-rate: use balanced split strategy.",
         )
-
-    # 2.5) Composition balance/readability: adjust spec layout for better visual proportion.
-    layout_metrics = manifest.get("layout", {})
-    limits = quality.get("limits", {})
-    coverage_ratio = _safe_float(layout_metrics.get("coverage_ratio"), 0.0)
-    visual_center = _safe_float(layout_metrics.get("visual_center_y_pct"), 0.0)
-    readable_font_rate = _safe_float(layout_metrics.get("readable_font_rate"), 1.0)
-    lower_half_coverage = _safe_float(layout_metrics.get("lower_half_coverage_ratio"), 0.0)
-    min_cov = _safe_float(limits.get("minContentCoverage"), 0.22)
-    target_center = _safe_float(limits.get("targetVisualCenterYPct"), 0.52)
-    max_center_dev = _safe_float(limits.get("maxVisualCenterDeviationPct"), 0.18)
-    min_lower_half_coverage = max(
-        _safe_float(limits.get("minLowerHalfCoverage"), 0.24),
-        _safe_float(limits.get("minLowerHalfCoverageGate"), 0.24),
-    )
-
-    current_layout = spec.get("layout") or {}
-
-    if coverage_ratio < min_cov:
-        media_pad_x = _safe_float(current_layout.get("mediaPadXPct"), 0.085)
-        media_pad_y = _safe_float(current_layout.get("mediaPadYPct"), 0.13)
-        target_media_pad_x = max(0.05, media_pad_x - 0.015)
-        target_media_pad_y = max(0.08, media_pad_y - 0.02)
-
-        if abs(target_media_pad_x - media_pad_x) > 1e-6:
-            _add_patch(
-                patches,
-                spec_path,
-                "/layout/mediaPadXPct",
-                round(target_media_pad_x, 4),
-                "Content coverage is low: enlarge central content region horizontally.",
-            )
-        if abs(target_media_pad_y - media_pad_y) > 1e-6:
-            _add_patch(
-                patches,
-                spec_path,
-                "/layout/mediaPadYPct",
-                round(target_media_pad_y, 4),
-                "Content coverage is low: enlarge central content region vertically.",
-            )
-
-    if max_center_dev > 0:
-        if visual_center < target_center - max_center_dev * 0.35:
-            for key, base, upper in [
-                ("heroYPct", 0.19, 0.3),
-                ("cardYPct", 0.24, 0.34),
-                ("kineticYPct", 0.66, 0.69),
-                ("lowerThirdYPct", 0.71, 0.72),
-            ]:
-                cur = _safe_float(current_layout.get(key), base)
-                nxt = min(upper, cur + 0.03)
-                if abs(nxt - cur) > 1e-6:
-                    _add_patch(
-                        patches,
-                        spec_path,
-                        f"/layout/{key}",
-                        round(nxt, 4),
-                        "Visual center is too high: move foreground composition downward for balance.",
-                    )
-        elif visual_center > target_center + max_center_dev * 0.35:
-            for key, base, lower in [
-                ("heroYPct", 0.19, 0.1),
-                ("cardYPct", 0.24, 0.14),
-                ("kineticYPct", 0.66, 0.52),
-                ("lowerThirdYPct", 0.71, 0.56),
-            ]:
-                cur = _safe_float(current_layout.get(key), base)
-                nxt = max(lower, cur - 0.03)
-                if abs(nxt - cur) > 1e-6:
-                    _add_patch(
-                        patches,
-                        spec_path,
-                        f"/layout/{key}",
-                        round(nxt, 4),
-                        "Visual center is too low: move foreground composition upward for balance.",
-                    )
-
-    if lower_half_coverage < min_lower_half_coverage and frame_violations == 0 and safe_violations == 0:
-        for key, base, upper in [
-            ("heroYPct", 0.19, 0.3),
-            ("cardYPct", 0.24, 0.34),
-            ("kineticYPct", 0.66, 0.69),
-            ("lowerThirdYPct", 0.71, 0.72),
-        ]:
-            cur = _safe_float(current_layout.get(key), base)
-            nxt = min(upper, cur + 0.035)
-            if abs(nxt - cur) > 1e-6:
-                _add_patch(
-                    patches,
-                    spec_path,
-                    f"/layout/{key}",
-                    round(nxt, 4),
-                    "Lower-half content density is low: shift composition downward for better visual balance.",
-                )
-
-    if readable_font_rate < 0.85:
-        hero_h = _safe_float(current_layout.get("heroHeightPct"), 0.36)
-        card_h = _safe_float(current_layout.get("cardHeightPct"), 0.44)
-        card_w = _safe_float(current_layout.get("cardWidthPct"), 0.72)
-        target_hero_h = min(0.5, hero_h + 0.03)
-        target_card_h = min(0.58, card_h + 0.04)
-        target_card_w = min(0.84, card_w + 0.04)
-
-        if abs(target_hero_h - hero_h) > 1e-6:
-            _add_patch(
-                patches,
-                spec_path,
-                "/layout/heroHeightPct",
-                round(target_hero_h, 4),
-                "Estimated text size is small: increase hero text area height.",
-            )
-        if abs(target_card_h - card_h) > 1e-6:
-            _add_patch(
-                patches,
-                spec_path,
-                "/layout/cardHeightPct",
-                round(target_card_h, 4),
-                "Estimated text size is small: increase prompt card height.",
-            )
-        if abs(target_card_w - card_w) > 1e-6:
-            _add_patch(
-                patches,
-                spec_path,
-                "/layout/cardWidthPct",
-                round(target_card_w, 4),
-                "Estimated text size is small: increase prompt card width.",
-            )
-
-    sparse_beat_rate = _safe_float(layout_metrics.get("sparse_beat_rate"), 0.0)
-    max_sparse_beat_rate = _safe_float(limits.get("maxSparseBeatRate"), 0.18)
-    if beats and sparse_beat_rate > max_sparse_beat_rate:
-        injected = 0
-        sparse_fill_variants = [
-            "VectorMapBroll",
-            "SearchIconBroll",
-            "UseCasesIconsBroll",
-            "SemanticOrbitBroll",
-        ]
-        for idx, beat in enumerate(beats):
-            scene = beat.get("scene") if isinstance(beat, dict) else {}
-            scene = scene if isinstance(scene, dict) else {}
-            layers = scene.get("layers")
-            if not isinstance(layers, list) or len(layers) != 1:
-                continue
-            only = layers[0] if isinstance(layers[0], dict) else {}
-            layer_type = str(only.get("type") or "")
-            if layer_type not in {"HeroTitle", "KineticWords", "PromptAnswerCard"}:
-                continue
-            _add_patch(
-                patches,
-                spec_path,
-                f"/beats/{idx}/scene/layers/0",
-                {
-                    "type": "MediaFrame",
-                    "props": {
-                        "kind": "react",
-                        "reactContent": sparse_fill_variants[injected % len(sparse_fill_variants)],
-                        "fallbackReactContent": "PipelineBlocksBroll",
-                    },
-                },
-                "Sparse beats are too many: inject a background visual layer behind text-only scenes.",
-                op="add",
-            )
-            injected += 1
-            if injected >= 3:
-                break
-
-    # 3) Middle-stage blankness: replace low-energy middle beats with richer modes.
-    mid_low_energy_rate = _safe_float(
-        _deep_get(manifest, "storyboard", "middle_low_energy_rate", default=0.0), 0.0
-    )
-    duration_sec = _safe_float(_deep_get(spec, "meta", "durationSec", default=60.0), 60.0)
-    mid_start = duration_sec * 0.35
-    mid_end = duration_sec * 0.75
-
-    if beats and mid_low_energy_rate > 0.35:
-        replacement_modes = ["media", "kinetic", "promptCard"]
-        r_idx = 0
-        for idx, beat in enumerate(beats):
-            t0 = _safe_float(beat.get("t0"), 0.0)
-            t1 = _safe_float(beat.get("t1"), 0.0)
-            mode = str(beat.get("renderMode") or "")
-            if t0 >= mid_start and t1 <= mid_end and mode in {"lowerThird", "outro"}:
-                new_mode = replacement_modes[r_idx % len(replacement_modes)]
-                new_transition = "slide" if r_idx % 2 == 0 else "fade"
-                _add_patch(
-                    patches,
-                    spec_path,
-                    f"/beats/{idx}/renderMode",
-                    new_mode,
-                    "Middle section looks low-energy: replace beat render mode with richer storyboard mode.",
-                )
-                _add_patch(
-                    patches,
-                    spec_path,
-                    f"/beats/{idx}/transitionType",
-                    new_transition,
-                    "Middle section looks low-energy: alternate transitions for visual continuity.",
-                )
-                r_idx += 1
-
-    # 4) Motion diversity: avoid both over-fragmentation and monotony.
-    transition_count = int(_deep_get(manifest, "diversity", "transition_type_count", default=0) or 0)
-    dominant_transition_share = _safe_float(
-        _deep_get(manifest, "diversity", "dominant_transition_share", default=1.0), 1.0
-    )
-    min_transition = int(_deep_get(quality, "limits", "minTransitionTypes", default=1) or 1)
-    max_dominant_transition = _safe_float(
-        _deep_get(quality, "limits", "maxDominantTransitionShare", default=0.78), 0.78
-    )
-    if beats and (transition_count < min_transition or dominant_transition_share > max_dominant_transition):
-        for idx, beat in enumerate(beats):
-            target_transition = "slide" if idx % 2 == 0 else "fade"
-            if str(beat.get("transitionType") or "fade") == target_transition:
-                continue
-            _add_patch(
-                patches,
-                spec_path,
-                f"/beats/{idx}/transitionType",
-                target_transition,
-                "Transition variety is too low: alternate transitions to reduce visual monotony.",
-            )
-
-    motion_count = int(_deep_get(manifest, "diversity", "motion_recipe_count", default=0) or 0)
-    dominant_motion_share = _safe_float(
-        _deep_get(manifest, "diversity", "dominant_motion_share", default=1.0), 1.0
-    )
-    min_motion = int(_deep_get(quality, "limits", "minMotionRecipes", default=1) or 1)
-    max_dominant_motion = _safe_float(
-        _deep_get(quality, "limits", "maxDominantMotionShare", default=0.76), 0.76
-    )
-    max_motion = int(_deep_get(quality, "limits", "maxMotionRecipes", default=3) or 3)
-
-    if beats and (motion_count < min_motion or dominant_motion_share > max_dominant_motion):
-        for idx, beat in enumerate(beats):
-            render_mode = str(beat.get("renderMode") or "").strip()
-            target_motion = "kenburns" if render_mode == "media" and idx % 2 == 0 else "spring"
-            if idx % 3 == 1:
-                target_motion = "slide"
-            if str(beat.get("motionRecipe") or "spring") == target_motion:
-                continue
-            _add_patch(
-                patches,
-                spec_path,
-                f"/beats/{idx}/motionRecipe",
-                target_motion,
-                "Motion recipe variety is too low: diversify motion patterns across beats.",
-            )
-
-    if beats and motion_count > max_motion:
-        keep_priority = {"slide": 1000, "kenburns": 900, "spring": 800, "pop": 700, "type": 600}
-        freq: Dict[str, int] = {}
-        for beat in beats:
-            recipe = str(beat.get("motionRecipe") or "slide").strip() or "slide"
-            freq[recipe] = freq.get(recipe, 0) + 1
-
-        ranked = sorted(
-            freq.keys(),
-            key=lambda key: (freq.get(key, 0), keep_priority.get(key, 0)),
-            reverse=True,
-        )
-        keep_set = set(ranked[:max_motion])
-
-        for idx, beat in enumerate(beats):
-            recipe = str(beat.get("motionRecipe") or "slide").strip() or "slide"
-            if recipe in keep_set:
-                continue
-
-            render_mode = str(beat.get("renderMode") or "").strip()
-            fallback = "kenburns" if render_mode == "media" and "kenburns" in keep_set else "slide"
-            if fallback == recipe:
-                continue
-
-            _add_patch(
-                patches,
-                spec_path,
-                f"/beats/{idx}/motionRecipe",
-                fallback,
-                "Motion recipe diversity is too high: converge on a smaller recipe set for consistency.",
-            )
-
-    component_type_count = int(_deep_get(manifest, "diversity", "component_type_count", default=0) or 0)
-    dominant_component_share = _safe_float(
-        _deep_get(manifest, "diversity", "dominant_component_share", default=1.0), 1.0
-    )
-    react_variant_count = int(_deep_get(manifest, "diversity", "react_variant_count", default=0) or 0)
-    dominant_react_variant_share = _safe_float(
-        _deep_get(manifest, "diversity", "dominant_react_variant_share", default=1.0), 1.0
-    )
-    max_consecutive_react_variant_run = int(
-        _deep_get(manifest, "diversity", "max_consecutive_react_variant_run", default=0) or 0
-    )
-    adjacent_react_variant_repeat_rate = _safe_float(
-        _deep_get(manifest, "diversity", "adjacent_react_variant_repeat_rate", default=0.0), 0.0
-    )
-    scene_signature_count = int(_deep_get(manifest, "diversity", "scene_signature_count", default=0) or 0)
-    dominant_scene_signature_share = _safe_float(
-        _deep_get(manifest, "diversity", "dominant_scene_signature_share", default=1.0), 1.0
-    )
-    min_component_types = int(_deep_get(quality, "limits", "minComponentTypes", default=4) or 4)
-    min_react_variants = int(_deep_get(quality, "limits", "minReactVariants", default=6) or 6)
-    min_scene_signatures = int(_deep_get(quality, "limits", "minSceneSignatures", default=8) or 8)
-    max_dominant_share = _safe_float(
-        _deep_get(quality, "limits", "maxDominantComponentShare", default=0.62), 0.62
-    )
-    max_dominant_react_share = _safe_float(
-        _deep_get(quality, "limits", "maxDominantReactVariantShare", default=0.28), 0.28
-    )
-    max_react_run = int(_deep_get(quality, "limits", "maxConsecutiveReactVariantRun", default=3) or 3)
-    max_adjacent_react_repeat_rate = _safe_float(
-        _deep_get(quality, "limits", "maxAdjacentReactRepeatRate", default=0.3), 0.3
-    )
-    max_dominant_scene_signature_share = _safe_float(
-        _deep_get(quality, "limits", "maxDominantSceneSignatureShare", default=0.24), 0.24
-    )
-    diversity_needs_fix = any(
-        [
-            component_type_count < min_component_types,
-            dominant_component_share > max_dominant_share,
-            react_variant_count < min_react_variants,
-            dominant_react_variant_share > max_dominant_react_share,
-            max_consecutive_react_variant_run > max_react_run,
-            adjacent_react_variant_repeat_rate > max_adjacent_react_repeat_rate,
-            scene_signature_count < min_scene_signatures,
-            dominant_scene_signature_share > max_dominant_scene_signature_share,
-        ]
-    )
-    if beats and diversity_needs_fix:
-        variant_pool = [
-            "KeywordVsMeaningBroll",
-            "VectorMapBroll",
-            "ChunksBroll",
-            "EmbeddingsBroll",
-            "StoreAndLinkBroll",
-            "NearestNeighborsBroll",
-            "UseCasesIconsBroll",
-            "RetrieveThenAnswerBroll",
-            "CatalogCardsBroll",
-            "SearchIconBroll",
-            "DashboardIconsBroll",
-            "SemanticOrbitBroll",
-        ]
-        by_intent = {
-            "problem": "KeywordVsMeaningBroll",
-            "analogy": "VectorMapBroll",
-            "step1": "ChunksBroll",
-            "step2": "EmbeddingsBroll",
-            "step3": "StoreAndLinkBroll",
-            "nearest": "NearestNeighborsBroll",
-            "query": "SemanticOrbitBroll",
-            "example": "SearchIconBroll",
-            "use": "UseCasesIconsBroll",
-            "rag": "RetrieveThenAnswerBroll",
-            "catalog": "CatalogCardsBroll",
-        }
-
-        media_slots: List[Tuple[int, int, str]] = []
-        variant_counts: Dict[str, int] = {}
-        for idx, beat in enumerate(beats):
-            scene = beat.get("scene") if isinstance(beat, dict) else {}
-            scene = scene if isinstance(scene, dict) else {}
-            layers = scene.get("layers")
-            if not isinstance(layers, list):
-                continue
-            intent_key = str(beat.get("intent") or "").lower()
-            for layer_idx, layer in enumerate(layers):
-                if not isinstance(layer, dict) or str(layer.get("type")) != "MediaFrame":
-                    continue
-                props = layer.get("props")
-                if not isinstance(props, dict) or str(props.get("kind", "react")) != "react":
-                    continue
-                current = str(props.get("reactContent") or "").strip() or "PipelineBlocksBroll"
-                media_slots.append((idx, layer_idx, current))
-                variant_counts[current] = variant_counts.get(current, 0) + 1
-                if intent_key and intent_key in by_intent:
-                    continue
-
-        if media_slots:
-            overused = sorted(
-                variant_counts.keys(),
-                key=lambda key: variant_counts.get(key, 0),
-                reverse=True,
-            )
-            patch_count = 0
-            changed_slots = set()
-
-            for variant in overused:
-                if patch_count >= 10:
-                    break
-                count = variant_counts.get(variant, 0)
-                if count <= 1:
-                    continue
-                slots = [slot for slot in media_slots if slot[2] == variant]
-                # Keep the first usage and diversify the rest.
-                for slot_idx, (beat_idx, layer_idx, _) in enumerate(slots):
-                    if slot_idx == 0 or patch_count >= 10:
-                        continue
-                    if (beat_idx, layer_idx) in changed_slots:
-                        continue
-                    beat = beats[beat_idx]
-                    intent = str(beat.get("intent") or "").lower()
-                    preferred = None
-                    for key, candidate in by_intent.items():
-                        if key in intent:
-                            preferred = candidate
-                            break
-                    choices = [preferred] if preferred else []
-                    choices += [name for name in variant_pool if name not in {variant, preferred}]
-                    target = next((name for name in choices if name and name != variant), None)
-                    if not target:
-                        continue
-                    _add_patch(
-                        patches,
-                        spec_path,
-                        f"/beats/{beat_idx}/scene/layers/{layer_idx}/props/reactContent",
-                        target,
-                        "Repeated visual variant detected: swap to a different react component for scene variety.",
-                    )
-                    changed_slots.add((beat_idx, layer_idx))
-                    patch_count += 1
-
-    # 5) Text readability: shorten overlong beat copy in spec.
-    max_chars = int(_deep_get(quality, "limits", "maxCharsPerLine", default=12))
-    max_lines = int(_deep_get(quality, "limits", "maxLines", default=2))
-    line_hit_rate = _safe_float(_deep_get(manifest, "text", "line_hit_rate", default=1.0), 1.0)
-    hard_limit = max_chars * max_lines
-
-    if line_hit_rate < 0.9 and beats:
-        for idx, beat in enumerate(beats):
-            text = str(beat.get("text") or "")
-            lines_count = _estimate_lines_count(text, max_chars)
-            if lines_count <= max_lines and len(text.strip()) <= hard_limit:
-                continue
-            shortened = _truncate_text(text, hard_limit)
-            if _estimate_lines_count(shortened, max_chars) > max_lines:
-                shortened = shortened[:hard_limit].rstrip()
-            if shortened != text:
-                _add_patch(
-                    patches,
-                    spec_path,
-                    f"/beats/{idx}/text",
-                    shortened,
-                    "Text density is high: shorten beat copy to improve per-screen readability.",
-                )
-
-    # 6) Audio loudness: tune content-side audio bed level in spec.
-    lufs = audio.get("input_i_lufs")
-    min_lufs = _safe_float(_deep_get(quality, "audio", "minLUFS", default=-18.0), -18.0)
-    max_lufs = _safe_float(_deep_get(quality, "audio", "maxLUFS", default=-14.0), -14.0)
-
-    current_volume = _safe_float(_deep_get(spec, "meta", "audioBedVolume", default=0.08), 0.08)
-    current_layers = int(_deep_get(spec, "meta", "audioLayerCount", default=1) or 1)
-
-    if lufs is not None:
-        lufs_val = _safe_float(lufs, -30.0)
-        if lufs_val < min_lufs:
-            gain_factor = 10 ** ((min_lufs - lufs_val) / 20.0)
-            target_volume = min(0.9, max(current_volume + 0.03, current_volume * gain_factor * 0.85))
-            if abs(target_volume - current_volume) > 1e-6:
-                _add_patch(
-                    patches,
-                    spec_path,
-                    "/meta/audioBedVolume",
-                    round(target_volume, 3),
-                    "Integrated LUFS is too low: increase timeline audio bed volume in spec.",
-                )
-            elif current_layers < 4:
-                _add_patch(
-                    patches,
-                    spec_path,
-                    "/meta/audioLayerCount",
-                    current_layers + 1,
-                    "Integrated LUFS is too low at max bed volume: add another audio bed layer in spec.",
-                )
-
-        elif lufs_val > max_lufs:
-            cut_factor = 10 ** ((lufs_val - max_lufs) / 20.0)
-            target_volume = max(0.01, current_volume / max(cut_factor, 1.01) * 1.1)
-            if abs(target_volume - current_volume) > 1e-6:
-                _add_patch(
-                    patches,
-                    spec_path,
-                    "/meta/audioBedVolume",
-                    round(target_volume, 3),
-                    "Integrated LUFS is too high: lower timeline audio bed volume in spec.",
-                )
-            elif current_layers > 1:
-                _add_patch(
-                    patches,
-                    spec_path,
-                    "/meta/audioLayerCount",
-                    current_layers - 1,
-                    "Integrated LUFS is too high at minimum volume delta: reduce audio bed layer count in spec.",
-                )
 
     return _dedupe_patches(patches)
 
@@ -781,18 +835,31 @@ def _set_value(doc: Any, pointer: str, value: Any) -> None:
             cur.append(None)
         cur[idx] = value
     else:
-        cur[last] = value
+        if isinstance(value, dict) and "$scale" in value and isinstance(cur.get(last), (int, float)):
+            scaled = float(cur[last]) * float(value["$scale"])
+            # Keep typography updates bounded so optimize loop does not blow up font sizes.
+            if len(keys) >= 2 and keys[-2] == "typography":
+                lo_hi = {
+                    "hero": (72.0, 96.0),
+                    "title": (64.0, 86.0),
+                    "body": (42.0, 62.0),
+                    "caption": (24.0, 40.0),
+                }
+                if last in lo_hi:
+                    lo, hi = lo_hi[last]
+                    scaled = max(lo, min(hi, scaled))
+            cur[last] = scaled
+        else:
+            cur[last] = value
 
 
 def apply_patches_to_document(doc: Dict[str, Any], patches: List[Patch]) -> Dict[str, Any]:
     patched = deepcopy(doc)
-
     for patch in patches:
         op = patch.get("op", "replace")
         if op not in {"replace", "add"}:
             continue
         _set_value(patched, patch["path"], patch.get("value"))
-
     return patched
 
 
@@ -805,11 +872,9 @@ def apply_patches_to_file(file_path: str, patches: List[Patch]) -> Tuple[bool, D
         doc = json.load(f)
 
     patched = apply_patches_to_document(doc, patches)
-
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(patched, f, ensure_ascii=False, indent=2)
         f.write("\n")
-
     return True, patched
 
 

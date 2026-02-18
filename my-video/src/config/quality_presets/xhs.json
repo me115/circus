@@ -1,0 +1,38 @@
+{
+  "video": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "durationSec": 60,
+    "durationTolSec": 1
+  },
+  "safeArea": {
+    "marginLeftPct": 0.08,
+    "marginRightPct": 0.08,
+    "marginTopPct": 0.1,
+    "marginBottomPct": 0.22
+  },
+  "audio": {
+    "targetLUFS": -16,
+    "minLUFS": -18,
+    "maxLUFS": -14,
+    "maxTruePeakDbTP": -1
+  },
+  "limits": {
+    "maxWordsPerLine": 7,
+    "maxLines": 2
+  },
+  "layout": {
+    "safePadding": 72,
+    "mediaPadXPct": 0.085,
+    "mediaPadYPct": 0.13,
+    "kineticYPct": 0.58,
+    "lowerThirdYPct": 0.62,
+    "cardYPct": 0.24,
+    "cardWidthPct": 0.72,
+    "cardHeightPct": 0.44,
+    "heroMaxWidthPct": 0.78,
+    "heroYPct": 0.19,
+    "heroHeightPct": 0.36
+  }
+}

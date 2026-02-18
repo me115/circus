@@ -1,0 +1,28 @@
+{
+  "recipes": {
+    "entrance": {
+      "type": "spring",
+      "damping": 20,
+      "stiffness": 110,
+      "yFrom": 10,
+      "yTo": 0,
+      "scaleFrom": 0.985,
+      "scaleTo": 1,
+      "frames": 16
+    },
+    "emphasis": {
+      "type": "pulse",
+      "scalePeak": 1.015,
+      "frames": 8
+    },
+    "transition": {
+      "types": ["fade", "slide"],
+      "default": "fade",
+      "durationFrames": 14
+    }
+  },
+  "limits": {
+    "maxTransitionTypes": 2,
+    "maxMotionRecipes": 3
+  }
+}

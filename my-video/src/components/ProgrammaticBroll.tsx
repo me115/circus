@@ -255,6 +255,34 @@ const VectorMap = ({frame}: {frame: number}) => {
         );
       })}
 
+      <div
+        style={{
+          position: "absolute",
+          left: "6%",
+          right: "6%",
+          bottom: "8%",
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gap: 10,
+        }}
+      >
+        {["close = similar", "far = different", "query pulls neighbors"].map((label, idx) => (
+          <div
+            key={`legend-${label}`}
+            style={{
+              borderRadius: 12,
+              border: "1px solid rgba(173,214,255,0.28)",
+              background: idx === 2 ? "rgba(255,217,120,0.16)" : "rgba(8,20,42,0.6)",
+              padding: "8px 10px",
+            }}
+          >
+            <p style={{...microCopyStyle, fontSize: 16, color: idx === 2 ? "#ffe8ad" : "#dceaff"}}>
+              {label}
+            </p>
+          </div>
+        ))}
+      </div>
+
       <div style={{position: "absolute", left: "4.5%", top: "4.5%"}}>
         <p style={{...titleStyle, fontSize: 30}}>Similarity Space</p>
         <p style={{...microCopyStyle}}>closer nodes = closer meaning</p>

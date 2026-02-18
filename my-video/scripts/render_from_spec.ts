@@ -133,7 +133,11 @@ const main = async () => {
     webpackOverride: (config) => config,
   });
 
-  const compositionId = args.composition ?? spec?.meta?.compositionId ?? "SkillExplainer60";
+  const compositionId =
+    args.composition ??
+    spec?.meta?.compositionId ??
+    spec?.meta?.composition_id ??
+    "ExplainerFromSpec";
 
   const composition = await selectComposition({
     serveUrl,

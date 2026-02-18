@@ -1,4 +1,5 @@
 import {interpolate, spring, useCurrentFrame, useVideoConfig} from "remotion";
+import {emphasisPulseScale, entranceStyle} from "../theme/motion";
 import {tokens} from "../theme/tokens";
 import {staggerFrame} from "../utils/beat";
 
@@ -46,6 +47,7 @@ export const KineticWords = ({
           extrapolateLeft: "clamp",
           extrapolateRight: "clamp",
         });
+        const entrance = entranceStyle(Math.max(0, localFrame), fps, 0);
 
         let transform = "none";
         let shownWord = word;
@@ -65,13 +67,16 @@ export const KineticWords = ({
         }
 
         const isEmphasis = emphasizeSet.has(index);
+        const emphasisScale = isEmphasis ? emphasisPulseScale(localFrame, 6) : 1;
+        const composedTransform =
+          transform === "none" ? `scale(${emphasisScale})` : `${transform} scale(${emphasisScale})`;
 
         return (
           <span
             key={`${word}-${index}`}
             style={{
-              opacity: mode === "type" && shownWord.length === 0 ? 0 : opacity,
-              transform,
+              opacity: mode === "type" && shownWord.length === 0 ? 0 : opacity * entrance.opacity,
+              transform: composedTransform,
               fontSize: tokens.typography.sizes.body,
               fontWeight: isEmphasis ? 700 : 600,
               color: isEmphasis ? tokens.colors.accent : "#f3f7ff",

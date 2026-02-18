@@ -1,7 +1,7 @@
 import {useId, useMemo} from "react";
 import {AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig} from "remotion";
-import {tokens} from "../theme/tokens";
 import {StylePreset} from "../theme/types";
+import {stylekit} from "../style";
 
 type BrandBackdropProps = {
   preset?: StylePreset;
@@ -12,9 +12,9 @@ type BrandBackdropProps = {
 
 const presetGradients: Record<StylePreset, string[]> = {
   gemini: [
-    "linear-gradient(135deg, #05070e 0%, #0a1530 38%, #0b1f3f 100%)",
-    "radial-gradient(circle at 18% 20%, rgba(115, 180, 255, 0.35), transparent 48%)",
-    "radial-gradient(circle at 82% 28%, rgba(68, 230, 216, 0.22), transparent 50%)",
+    `linear-gradient(135deg, ${stylekit.palette.bg1} 0%, ${stylekit.palette.bg2} 56%, #172243 100%)`,
+    `radial-gradient(circle at 18% 20%, ${stylekit.palette.primary}66, transparent 48%)`,
+    `radial-gradient(circle at 82% 28%, ${stylekit.palette.accent}55, transparent 50%)`,
   ],
   dark: [
     "linear-gradient(145deg, #02040a 0%, #0a1223 52%, #0d1d37 100%)",
@@ -32,7 +32,7 @@ export const BrandBackdrop = ({
   preset = "gemini",
   intensity = 0.9,
   animate = true,
-  safePadding = tokens.spacing.xl,
+  safePadding = Math.round(stylekit.safeArea.leftPct * 1000),
 }: BrandBackdropProps) => {
   const frame = useCurrentFrame();
   const {width, height} = useVideoConfig();

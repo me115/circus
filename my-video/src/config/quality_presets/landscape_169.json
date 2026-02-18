@@ -1,0 +1,62 @@
+{
+  "video": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "durationSec": 60,
+    "durationTolSec": 1
+  },
+  "safeArea": {
+    "marginLeftPct": 0.06,
+    "marginRightPct": 0.06,
+    "marginTopPct": 0.08,
+    "marginBottomPct": 0.12
+  },
+  "limits": {
+    "maxWidowWords": 1,
+    "maxHookWidowWords": 1,
+    "maxLineWordImbalance": 3,
+    "maxHookLineWordImbalance": 1,
+    "maxBadLineBreakRate": 0.05,
+    "maxWordsPerLine": 7,
+    "maxLines": 2,
+    "maxBadLineBreakRateGate": 0.06,
+    "maxBadLineBreakCountGate": 0,
+    "maxHookBadLineBreakCountGate": 0,
+    "maxShortHoldBeatRateGate": 0.12,
+    "maxShortHoldBeatCountGate": 1,
+    "maxFragmentLineRate": 0.04,
+    "maxFragmentLineRateGate": 0.05,
+    "maxBadHighlightBeatRateGate": 0.0,
+    "minCharsForTextFill": 24,
+    "minTextFillRatioP25Gate": 0.09,
+    "maxLowTextFillBlockRateGate": 0.26,
+    "maxLowTextFillBeatRateGate": 0.24,
+    "maxOverlapBeatRateGate": 0.08,
+    "maxOverlapRatioGate": 0.26,
+    "maxSevereOverlapBeatRateGate": 0.0,
+    "maxWrapRiskBeatRateGate": 0.14,
+    "minStructuralBeatCoverageP25Gate": 0.1,
+    "maxStructuralLowCoverageBeatRateGate": 0.12,
+    "maxBackdropPresetCountGate": 1,
+    "maxBackdropSwitchRateGate": 0.2,
+    "maxBackdropIntensityJumpGate": 0.16,
+    "minEffectiveCoverageP25": 0.11,
+    "minEffectiveCoverageP25Gate": 0.08,
+    "maxSparseBeatRateGate": 0.35
+  },
+  "layout": {
+    "safePadding": 64,
+    "mediaPadXPct": 0.07,
+    "mediaPadYPct": 0.12,
+    "kineticYPct": 0.67,
+    "lowerThirdYPct": 0.72,
+    "lowerThirdMaxWidthPct": 0.62,
+    "cardYPct": 0.24,
+    "cardWidthPct": 0.68,
+    "cardHeightPct": 0.3,
+    "heroMaxWidthPct": 0.72,
+    "heroYPct": 0.18,
+    "heroHeightPct": 0.32
+  }
+}

@@ -199,6 +199,76 @@ def diversity_stats(manifest: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def structure_stats(manifest: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, Any]:
+    beats = manifest.get("beats") or []
+    if not beats:
+        return {
+            "checked_beat_count": 0,
+            "weak_structure_beat_count": 0,
+            "weak_structure_beat_rate": 0.0,
+            "weak_structure_beat_ids": [],
+            "short_structural_beat_count": 0,
+            "short_structural_beat_ids": [],
+            "min_structural_beat_sec": float(limits.get("minStructuralBeatSec", 1.2)),
+        }
+
+    structural_types = {
+        "MediaFrame",
+        "PromptAnswerCard",
+        "HeroTitle",
+        "LogoOutro",
+        "BeforeAfter",
+        "Stepper3",
+        "Callout",
+    }
+    text_overlay_types = {"KineticWords", "LowerThird"}
+    skip_intents = {"hook", "outro"}
+    min_structural_beat_sec = float(limits.get("minStructuralBeatSec", 1.2))
+
+    weak_ids: List[str] = []
+    short_structural_ids: List[str] = []
+    checked = 0
+
+    for beat in beats:
+        beat_id = str(beat.get("id") or "")
+        intent = str(beat.get("intent") or "").lower()
+        layer_types_raw = beat.get("layerTypes")
+        layer_types = (
+            [str(item).strip() for item in layer_types_raw if str(item).strip()]
+            if isinstance(layer_types_raw, list)
+            else []
+        )
+
+        if any(token in intent for token in skip_intents):
+            continue
+
+        checked += 1
+        has_structural = any(layer_type in structural_types for layer_type in layer_types)
+        has_text_overlay = any(layer_type in text_overlay_types for layer_type in layer_types)
+
+        if (not has_structural) and has_text_overlay:
+            weak_ids.append(beat_id)
+
+        if has_structural:
+            try:
+                duration = max(0.0, float(beat.get("t1", 0.0) or 0.0) - float(beat.get("t0", 0.0) or 0.0))
+            except (TypeError, ValueError):
+                duration = 0.0
+            if duration < min_structural_beat_sec:
+                short_structural_ids.append(beat_id)
+
+    weak_count = len(weak_ids)
+    return {
+        "checked_beat_count": checked,
+        "weak_structure_beat_count": weak_count,
+        "weak_structure_beat_rate": float(weak_count / checked) if checked > 0 else 0.0,
+        "weak_structure_beat_ids": weak_ids,
+        "short_structural_beat_count": len(short_structural_ids),
+        "short_structural_beat_ids": short_structural_ids,
+        "min_structural_beat_sec": min_structural_beat_sec,
+    }
+
+
 def no_element_gap_stats(manifest: Dict[str, Any], max_gap_sec: float = 3.0) -> Dict[str, Any]:
     beats = sorted((manifest.get("beats") or []), key=lambda b: float(b.get("t0", 0.0) or 0.0))
     meta = manifest.get("meta") or {}
@@ -251,6 +321,91 @@ def no_element_gap_stats(manifest: Dict[str, Any], max_gap_sec: float = 3.0) -> 
         "violating_gap_count": violating_gap_count,
         "allowed_max_gap_sec": max_gap_sec,
         "pass": violating_gap_count == 0,
+    }
+
+
+def highlight_stats(manifest: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, Any]:
+    beats = manifest.get("beats") or []
+    if not beats:
+        return {
+            "highlighted_word_count": 0,
+            "highlighted_beat_count": 0,
+            "stopword_highlight_count": 0,
+            "stopword_highlight_rate": 0.0,
+            "bad_highlight_beat_count": 0,
+            "bad_highlight_beat_rate": 0.0,
+            "bad_highlight_beat_ids": [],
+        }
+
+    stopwords = {
+        "a",
+        "an",
+        "and",
+        "as",
+        "at",
+        "by",
+        "for",
+        "from",
+        "in",
+        "into",
+        "it",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "to",
+        "with",
+    }
+    min_len = int(limits.get("minHighlightWordLen", 3) or 3)
+    highlighted_word_count = 0
+    highlighted_beat_count = 0
+    stopword_highlight_count = 0
+    bad_highlight_beat_ids: List[str] = []
+
+    for beat in beats:
+        if not isinstance(beat, dict):
+            continue
+        beat_id = str(beat.get("id") or "")
+        highlights_raw = beat.get("highlightedWords")
+        highlights = (
+            [str(item).strip() for item in highlights_raw if str(item).strip()]
+            if isinstance(highlights_raw, list)
+            else []
+        )
+        if not highlights:
+            continue
+        highlighted_beat_count += 1
+        beat_has_bad = False
+        for token in highlights:
+            cleaned = token.strip(".,;:!?\"'()[]{}").lower()
+            if not cleaned:
+                continue
+            highlighted_word_count += 1
+            if len(cleaned) < min_len or cleaned in stopwords:
+                stopword_highlight_count += 1
+                beat_has_bad = True
+        if beat_has_bad:
+            bad_highlight_beat_ids.append(beat_id)
+
+    stopword_highlight_rate = (
+        float(stopword_highlight_count / highlighted_word_count)
+        if highlighted_word_count > 0
+        else 0.0
+    )
+    bad_highlight_beat_rate = (
+        float(len(bad_highlight_beat_ids) / highlighted_beat_count)
+        if highlighted_beat_count > 0
+        else 0.0
+    )
+    return {
+        "highlighted_word_count": highlighted_word_count,
+        "highlighted_beat_count": highlighted_beat_count,
+        "stopword_highlight_count": stopword_highlight_count,
+        "stopword_highlight_rate": stopword_highlight_rate,
+        "bad_highlight_beat_count": len(bad_highlight_beat_ids),
+        "bad_highlight_beat_rate": bad_highlight_beat_rate,
+        "bad_highlight_beat_ids": bad_highlight_beat_ids,
     }
 
 
@@ -346,12 +501,15 @@ def _percentile(values: List[float], q: float) -> float:
 
 def _effective_area_weight(layer_type: str, limits: Dict[str, Any]) -> float:
     defaults = {
-        "MediaFrame": 0.58,
+        "MediaFrame": 0.62,
         "HeroTitle": 0.5,
-        "LowerThird": 0.42,
-        "KineticWords": 0.33,
+        "LowerThird": 0.3,
+        "KineticWords": 0.24,
         "PromptAnswerCard": 0.72,
         "LogoOutro": 0.64,
+        "BeforeAfter": 0.32,
+        "Stepper3": 0.24,
+        "Callout": 0.44,
     }
     key = f"effectiveWeight{layer_type}"
     fallback = defaults.get(layer_type, 0.5)
@@ -385,6 +543,30 @@ def _aligned_bbox_pair(
     )
 
 
+def _bbox_overlap_ratio(bbox_a: Dict[str, float], bbox_b: Dict[str, float]) -> float:
+    ax = float(bbox_a.get("x", 0.0))
+    ay = float(bbox_a.get("y", 0.0))
+    aw = float(bbox_a.get("w", 0.0))
+    ah = float(bbox_a.get("h", 0.0))
+    bx = float(bbox_b.get("x", 0.0))
+    by = float(bbox_b.get("y", 0.0))
+    bw = float(bbox_b.get("w", 0.0))
+    bh = float(bbox_b.get("h", 0.0))
+    if aw <= 0 or ah <= 0 or bw <= 0 or bh <= 0:
+        return 0.0
+
+    ix1 = max(ax, bx)
+    iy1 = max(ay, by)
+    ix2 = min(ax + aw, bx + bw)
+    iy2 = min(ay + ah, by + bh)
+    iw = max(0.0, ix2 - ix1)
+    ih = max(0.0, iy2 - iy1)
+    inter = iw * ih
+    if inter <= 0:
+        return 0.0
+    return float(inter / max(min(aw * ah, bw * bh), 1e-6))
+
+
 def layout_stats(manifest: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, Any]:
     blocks = manifest.get("textBlocks") or []
     meta = manifest.get("meta") or {}
@@ -401,6 +583,12 @@ def layout_stats(manifest: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, 
     max_center_dev_x = float(limits.get("maxVisualCenterDeviationXPct", 0.16))
     min_font = float(limits.get("minReadableFontPx", 22))
     min_beat_effective_cov = float(limits.get("minBeatEffectiveCoverage", 0.2))
+    min_text_fill_ratio = float(limits.get("minTextFillRatio", 0.1))
+    min_text_fill_ratio_p25 = float(limits.get("minTextFillRatioP25", 0.08))
+    overlap_ratio_threshold = float(limits.get("overlapRatioThreshold", 0.08))
+    severe_overlap_ratio_threshold = float(limits.get("severeOverlapRatioThreshold", 0.2))
+    wrap_risk_line_multiplier = float(limits.get("wrapRiskLineMultiplier", 1.0))
+    max_lines_default = int(limits.get("maxLines", 2) or 2)
     align_tol_x = width * float(limits.get("alignmentToleranceXPct", 0.02))
     align_tol_y = height * float(limits.get("alignmentToleranceYPct", 0.02))
 
@@ -427,6 +615,20 @@ def layout_stats(manifest: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, 
             "avg_estimated_font_px": 0.0,
             "readable_font_rate": 0.0,
             "lower_half_coverage_ratio": 0.0,
+            "text_fill_ratio_mean": 0.0,
+            "text_fill_ratio_p25": 0.0,
+            "low_text_fill_block_rate": 1.0,
+            "low_text_fill_beat_rate": 1.0,
+            "low_text_fill_beat_ids": [],
+            "overlap_pair_rate": 0.0,
+            "overlap_beat_rate": 0.0,
+            "overlap_beat_ids": [],
+            "max_overlap_ratio": 0.0,
+            "severe_overlap_beat_rate": 0.0,
+            "severe_overlap_beat_ids": [],
+            "wrap_risk_block_rate": 0.0,
+            "wrap_risk_beat_rate": 0.0,
+            "wrap_risk_beat_ids": [],
         }
 
     areas: List[float] = []
@@ -434,9 +636,12 @@ def layout_stats(manifest: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, 
     weighted_centers_x: List[float] = []
     lower_half_area = 0.0
     font_values: List[float] = []
+    text_fill_values: List[float] = []
     beat_area: Dict[str, float] = {}
     beat_effective_area: Dict[str, float] = {}
+    beat_text_fill_values: Dict[str, List[float]] = {}
     beat_bboxes: Dict[str, List[Dict[str, float]]] = {}
+    beat_blocks: Dict[str, List[Dict[str, Any]]] = {}
 
     for block in blocks:
         bbox = block.get("bbox") or {}
@@ -467,6 +672,7 @@ def layout_stats(manifest: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, 
                     "h": h,
                 }
             )
+            beat_blocks.setdefault(beat_id, []).append(block)
         lower_half_top = height * 0.5
         overlap_h = max(0.0, min(y + h, height) - max(y, lower_half_top))
         lower_half_area += w * overlap_h
@@ -474,7 +680,20 @@ def layout_stats(manifest: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, 
         est_font = block.get("estimatedFontPx")
         if bool(block.get("isTextLayer", True)) and est_font is not None:
             try:
-                font_values.append(float(est_font))
+                est_font_value = float(est_font)
+                font_values.append(est_font_value)
+                chars = max(0.0, float(block.get("chars", 0) or 0))
+                # Ignore extremely short labels when computing text-fill;
+                # they are handled by coverage/structure metrics and otherwise create false positives.
+                min_chars_for_fill = float(limits.get("minCharsForTextFill", 24))
+                if chars >= min_chars_for_fill and w > 0 and h > 0:
+                    avg_char_width = est_font_value * 0.52
+                    line_height = est_font_value * 1.2
+                    estimated_text_area = chars * avg_char_width * line_height * 0.54
+                    fill_ratio = max(0.0, min(1.0, estimated_text_area / max(area, 1e-6)))
+                    text_fill_values.append(fill_ratio)
+                    if beat_id:
+                        beat_text_fill_values.setdefault(beat_id, []).append(fill_ratio)
             except (TypeError, ValueError):
                 pass
 
@@ -489,19 +708,29 @@ def layout_stats(manifest: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, 
         beat_coverage_p25 = coverage_ratio
         beat_coverage_min = coverage_ratio
 
+    beat_effective_coverage_map: Dict[str, float] = {}
     if beat_effective_area:
+        beat_effective_coverage_map = {
+            beat_id: min(1.0, area / frame_area) for beat_id, area in beat_effective_area.items()
+        }
         per_beat_effective_cov = [
-            min(1.0, area / frame_area) for area in beat_effective_area.values()
+            beat_effective_coverage_map[beat_id] for beat_id in beat_effective_area.keys()
         ]
         effective_coverage_ratio = float(statistics.mean(per_beat_effective_cov))
         effective_coverage_p25 = _percentile(per_beat_effective_cov, 0.25)
         effective_coverage_min = min(per_beat_effective_cov) if per_beat_effective_cov else 0.0
-        sparse_beats = sum(1 for v in per_beat_effective_cov if v < min_beat_effective_cov)
+        sparse_beat_ids = [
+            beat_id
+            for beat_id, cov in beat_effective_coverage_map.items()
+            if cov < min_beat_effective_cov
+        ]
+        sparse_beats = len(sparse_beat_ids)
         sparse_beat_rate = float(sparse_beats / len(per_beat_effective_cov))
     else:
         effective_coverage_ratio = 0.0
         effective_coverage_p25 = 0.0
         effective_coverage_min = 0.0
+        sparse_beat_ids = []
         sparse_beat_rate = 1.0
 
     visual_center_x = (sum(weighted_centers_x) / total_area) if total_area > 0 else 0.0
@@ -532,6 +761,105 @@ def layout_stats(manifest: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, 
     avg_est_font = statistics.mean(font_values) if font_values else 0.0
     readable_hits = sum(1 for v in font_values if v >= min_font)
     readable_font_rate = (readable_hits / len(font_values)) if font_values else 0.0
+    text_fill_ratio_mean = float(statistics.mean(text_fill_values)) if text_fill_values else 0.0
+    text_fill_ratio_p25 = _percentile(text_fill_values, 0.25) if text_fill_values else 0.0
+    low_text_fill_block_rate = (
+        float(sum(1 for value in text_fill_values if value < min_text_fill_ratio) / len(text_fill_values))
+        if text_fill_values
+        else 1.0
+    )
+    beat_text_fill_avg = {
+        beat_id: float(statistics.mean(values))
+        for beat_id, values in beat_text_fill_values.items()
+        if values
+    }
+    low_text_fill_beat_ids = [
+        beat_id
+        for beat_id, fill_ratio in beat_text_fill_avg.items()
+        if fill_ratio < min_text_fill_ratio_p25
+    ]
+    low_text_fill_beat_rate = (
+        float(len(low_text_fill_beat_ids) / len(beat_text_fill_avg)) if beat_text_fill_avg else 1.0
+    )
+
+    overlap_pairs = 0
+    overlap_pairs_total = 0
+    overlap_beat_ids: List[str] = []
+    severe_overlap_beat_ids: List[str] = []
+    max_overlap_ratio = 0.0
+    text_like_types = {"LowerThird", "KineticWords", "HeroTitle"}
+    structural_types = {"BeforeAfter", "Stepper3", "PromptAnswerCard", "Callout"}
+    for beat_id, boxes in beat_bboxes.items():
+        beat_items = beat_blocks.get(beat_id, [])
+        beat_has_overlap = False
+        beat_has_severe = False
+        if len(boxes) < 2 or len(beat_items) < 2:
+            continue
+        for i in range(len(beat_items)):
+            for j in range(i + 1, len(beat_items)):
+                type_i = str(beat_items[i].get("layerType") or "")
+                type_j = str(beat_items[j].get("layerType") or "")
+                high_priority_pair = (
+                    (type_i in text_like_types and type_j in structural_types)
+                    or (type_j in text_like_types and type_i in structural_types)
+                    or (type_i in structural_types and type_j in structural_types)
+                )
+                if not high_priority_pair:
+                    continue
+                overlap_pairs_total += 1
+                ratio = _bbox_overlap_ratio(boxes[i], boxes[j])
+                max_overlap_ratio = max(max_overlap_ratio, ratio)
+                if ratio >= overlap_ratio_threshold:
+                    overlap_pairs += 1
+                    beat_has_overlap = True
+                if ratio >= severe_overlap_ratio_threshold:
+                    beat_has_severe = True
+        if beat_has_overlap:
+            overlap_beat_ids.append(beat_id)
+        if beat_has_severe:
+            severe_overlap_beat_ids.append(beat_id)
+    overlap_pair_rate = (
+        float(overlap_pairs / overlap_pairs_total) if overlap_pairs_total > 0 else 0.0
+    )
+    overlap_beat_rate = (
+        float(len(overlap_beat_ids) / len(beat_bboxes)) if beat_bboxes else 0.0
+    )
+    severe_overlap_beat_rate = (
+        float(len(severe_overlap_beat_ids) / len(beat_bboxes)) if beat_bboxes else 0.0
+    )
+
+    wrap_risk_block_hits = 0
+    wrap_risk_beat_ids: List[str] = []
+    text_block_count = 0
+    for beat_id, beat_items in beat_blocks.items():
+        beat_has_wrap_risk = False
+        for block in beat_items:
+            if not bool(block.get("isTextLayer", True)):
+                continue
+            text_block_count += 1
+            chars = float(block.get("chars", 0) or 0)
+            font_px = float(block.get("estimatedFontPx", 0) or 0)
+            bbox = block.get("bbox") if isinstance(block.get("bbox"), dict) else {}
+            bbox_w = float(bbox.get("w", 0) or 0)
+            if chars <= 0 or font_px <= 0 or bbox_w <= 0:
+                continue
+            capacity_chars_per_line = bbox_w / max(font_px * 0.52, 1e-6)
+            est_lines = chars / max(capacity_chars_per_line, 1e-6)
+            max_lines = int(block.get("maxLines") or max_lines_default)
+            planned_lines = int(block.get("plannedLines") or 0)
+            if planned_lines > 0 and planned_lines <= max_lines:
+                continue
+            if est_lines > max_lines * wrap_risk_line_multiplier:
+                wrap_risk_block_hits += 1
+                beat_has_wrap_risk = True
+        if beat_has_wrap_risk:
+            wrap_risk_beat_ids.append(beat_id)
+    wrap_risk_block_rate = (
+        float(wrap_risk_block_hits / text_block_count) if text_block_count > 0 else 0.0
+    )
+    wrap_risk_beat_rate = (
+        float(len(wrap_risk_beat_ids) / len(beat_blocks)) if beat_blocks else 0.0
+    )
 
     return {
         "block_count": len(blocks),
@@ -541,7 +869,9 @@ def layout_stats(manifest: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, 
         "effective_coverage_ratio": effective_coverage_ratio,
         "effective_coverage_p25": effective_coverage_p25,
         "effective_coverage_min": effective_coverage_min,
+        "beat_effective_coverage_map": beat_effective_coverage_map,
         "sparse_beat_rate": sparse_beat_rate,
+        "sparse_beat_ids": sparse_beat_ids,
         "visual_center_x_pct": visual_center_x_pct,
         "visual_center_y_pct": visual_center_y_pct,
         "center_deviation": center_deviation,
@@ -555,4 +885,18 @@ def layout_stats(manifest: Dict[str, Any], limits: Dict[str, Any]) -> Dict[str, 
         "avg_estimated_font_px": avg_est_font,
         "readable_font_rate": readable_font_rate,
         "lower_half_coverage_ratio": (lower_half_area / total_area) if total_area > 0 else 0.0,
+        "text_fill_ratio_mean": text_fill_ratio_mean,
+        "text_fill_ratio_p25": text_fill_ratio_p25,
+        "low_text_fill_block_rate": low_text_fill_block_rate,
+        "low_text_fill_beat_rate": low_text_fill_beat_rate,
+        "low_text_fill_beat_ids": low_text_fill_beat_ids,
+        "overlap_pair_rate": overlap_pair_rate,
+        "overlap_beat_rate": overlap_beat_rate,
+        "overlap_beat_ids": overlap_beat_ids,
+        "max_overlap_ratio": max_overlap_ratio,
+        "severe_overlap_beat_rate": severe_overlap_beat_rate,
+        "severe_overlap_beat_ids": severe_overlap_beat_ids,
+        "wrap_risk_block_rate": wrap_risk_block_rate,
+        "wrap_risk_beat_rate": wrap_risk_beat_rate,
+        "wrap_risk_beat_ids": wrap_risk_beat_ids,
     }

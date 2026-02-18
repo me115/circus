@@ -3,8 +3,10 @@ import {TransitionSeries, linearTiming} from "@remotion/transitions";
 import {fade} from "@remotion/transitions/fade";
 import {slide} from "@remotion/transitions/slide";
 import {AbsoluteFill, Audio, interpolate, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
+import {BeforeAfter} from "../components/BeforeAfter";
 import {BeatCut} from "../components/BeatCut";
 import {BrandBackdrop} from "../components/BrandBackdrop";
+import {Callout} from "../components/Callout";
 import {HeroTitle} from "../components/HeroTitle";
 import {KineticWords} from "../components/KineticWords";
 import {LogoOutro} from "../components/LogoOutro";
@@ -12,6 +14,11 @@ import {LowerThird} from "../components/LowerThird";
 import {MediaFrame} from "../components/MediaFrame";
 import {ProgrammaticBroll} from "../components/ProgrammaticBroll";
 import {PromptAnswerCard} from "../components/PromptAnswerCard";
+import {Stepper3} from "../components/Stepper3";
+import {routeStoryboard} from "../router/intent_router";
+import {normalizeStoryboard} from "../router/storyboard_normalizer";
+import {motionkit} from "../style";
+import {constrainTransitionType} from "../theme/motion";
 import {tokens} from "../theme/tokens";
 import {StylePreset} from "../theme/types";
 import {
@@ -44,8 +51,9 @@ const DEFAULT_LAYOUT: Required<LayoutConfig> = {
   safePadding: 72,
   mediaPadXPct: 0.085,
   mediaPadYPct: 0.13,
-  kineticYPct: 0.66,
-  lowerThirdYPct: 0.71,
+  kineticYPct: 0.58,
+  lowerThirdYPct: 0.7,
+  lowerThirdMaxWidthPct: 0.62,
   cardYPct: 0.24,
   cardWidthPct: 0.72,
   cardHeightPct: 0.44,
@@ -195,6 +203,20 @@ const normalizeBeats = (
   return normalized;
 };
 
+const prepareSpec = (spec: SkillTimelineSpec | undefined): SkillTimelineSpec | undefined => {
+  if (!spec) {
+    return spec;
+  }
+  const normalized = normalizeStoryboard(spec, {
+    minBeatSec: 2.5,
+    maxBeatSec: 4.0,
+    targetBeatSec: 3.0,
+    maxWordsPerLine: 7,
+    maxLines: 2,
+  });
+  return routeStoryboard(normalized.spec);
+};
+
 const renderWords = (text: string | undefined): string[] => {
   if (!text) {
     return [];
@@ -203,6 +225,68 @@ const renderWords = (text: string | undefined): string[] => {
     .split(/\s+/)
     .map((w) => w.trim())
     .filter((w) => w.length > 0);
+};
+
+const HIGHLIGHT_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "as",
+  "at",
+  "by",
+  "for",
+  "from",
+  "in",
+  "into",
+  "it",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "to",
+  "with",
+]);
+
+const isMeaningfulHighlightWord = (word: string): boolean => {
+  const cleaned = word.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  if (cleaned.length < 3) {
+    return false;
+  }
+  return !HIGHLIGHT_STOPWORDS.has(cleaned);
+};
+
+const sanitizeEmphasize = (words: string[], raw: number[]): number[] => {
+  if (words.length === 0) {
+    return [0];
+  }
+  const used = new Set<number>();
+  const meaningful = words
+    .map((word, idx) => ({word, idx}))
+    .filter((item) => isMeaningfulHighlightWord(item.word))
+    .map((item) => item.idx);
+  const fallback = meaningful.length > 0 ? meaningful[0] : 0;
+
+  const normalized: number[] = [];
+  for (const value of raw) {
+    if (!Number.isFinite(value)) {
+      continue;
+    }
+    const idx = Math.max(0, Math.min(words.length - 1, Math.round(value)));
+    if (!isMeaningfulHighlightWord(words[idx])) {
+      continue;
+    }
+    if (used.has(idx)) {
+      continue;
+    }
+    used.add(idx);
+    normalized.push(idx);
+  }
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+  return [fallback];
 };
 
 const getKineticMode = (motionRecipe: string): "pop" | "slide" | "type" => {
@@ -371,6 +455,9 @@ const renderLayer = ({
     const mode = modeRaw === "slide" || modeRaw === "type" ? modeRaw : "pop";
     const startFrameOffset = asNumber(props.startFrameOffset, 4);
 
+    const wordList = words.length > 0 ? words : renderWords(beat.text);
+    const emphasizeList = sanitizeEmphasize(wordList, emphasize.length > 0 ? emphasize : [0]);
+
     return (
       <div
         key={`${beat.id}-kinetic-${index}`}
@@ -383,11 +470,11 @@ const renderLayer = ({
         }}
       >
         <KineticWords
-          words={words.length > 0 ? words : renderWords(beat.text)}
+          words={wordList}
           startFrame={startFrameOffset}
           wordStagger={6}
           mode={mode}
-          emphasize={emphasize.length > 0 ? emphasize : [0]}
+          emphasize={emphasizeList}
         />
       </div>
     );
@@ -400,6 +487,21 @@ const renderLayer = ({
     const align = asString(props.align, "left") === "right" ? "right" : "left";
     const startFrame = asNumber(props.startFrame, 4);
     const durationInFrames = Math.max(12, Math.round(durationSec * 30));
+    const isLandscape = frameWidth >= frameHeight;
+    const wordCount = renderWords(title).length;
+    const hasTallVisual = beat.layers.some(
+      (item) =>
+        item.type === "BeforeAfter" || item.type === "Stepper3" || item.type === "PromptAnswerCard",
+    );
+    const yPctBase = layout.lowerThirdYPct + (isLandscape && hasTallVisual ? 0.04 : 0);
+    const yPct = Math.min(0.9, Math.max(0.56, yPctBase));
+    const maxWidthPct = Math.max(
+      0.5,
+      Math.min(
+        0.84,
+        layout.lowerThirdMaxWidthPct + (isLandscape && wordCount <= 9 ? 0.08 : 0),
+      ),
+    );
 
     return (
       <LowerThird
@@ -409,6 +511,8 @@ const renderLayer = ({
         startFrame={startFrame}
         durationInFrames={Math.min(durationInFrames, beat.durationInFrames - 1)}
         align={align}
+        yPct={yPct}
+        maxWidthPct={maxWidthPct}
       />
     );
   }
@@ -449,6 +553,82 @@ const renderLayer = ({
     );
   }
 
+  if (layer.type === "BeforeAfter") {
+    const beforeBullets = asStringArray(props.beforeBullets);
+    const afterBullets = asStringArray(props.afterBullets);
+    const isPortrait = frameHeight > frameWidth;
+    return (
+      <div
+        key={`${beat.id}-before-after-${index}`}
+        style={{
+          position: "absolute",
+          left: Math.round(frameWidth * (isPortrait ? 0.09 : 0.075)),
+          right: Math.round(frameWidth * (isPortrait ? 0.09 : 0.075)),
+          top: Math.round(frameHeight * (isPortrait ? 0.22 : 0.16)),
+          height: Math.round(frameHeight * (isPortrait ? 0.4 : 0.46)),
+        }}
+      >
+        <BeforeAfter
+          beforeTitle={asString(props.beforeTitle, "Before")}
+          afterTitle={asString(props.afterTitle, "After")}
+          beforeBullets={beforeBullets.length > 0 ? beforeBullets : ["exact match", "synonym miss"]}
+          afterBullets={afterBullets.length > 0 ? afterBullets : ["intent match", "semantic recall"]}
+          marker={asString(props.marker, "→")}
+        />
+      </div>
+    );
+  }
+
+  if (layer.type === "Stepper3") {
+    const stepsRaw = Array.isArray(props.steps) ? props.steps : [];
+    const isPortrait = frameHeight > frameWidth;
+    const steps = stepsRaw
+      .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+      .map((step, idx) => ({
+        title: asString(step.title, `Step ${idx + 1}`),
+        text: asString(step.text, "Explain clearly"),
+      }));
+    return (
+      <div
+        key={`${beat.id}-stepper-${index}`}
+        style={{
+          position: "absolute",
+          left: Math.round(frameWidth * (isPortrait ? 0.09 : 0.075)),
+          right: Math.round(frameWidth * (isPortrait ? 0.09 : 0.075)),
+          top: Math.round(frameHeight * (isPortrait ? 0.28 : 0.2)),
+          height: Math.round(frameHeight * (isPortrait ? 0.38 : 0.48)),
+        }}
+      >
+        <Stepper3
+          steps={steps.length > 0 ? steps : [
+            {title: "Step 1", text: "Chunk"},
+            {title: "Step 2", text: "Embed"},
+            {title: "Step 3", text: "Search"},
+          ]}
+        />
+      </div>
+    );
+  }
+
+  if (layer.type === "Callout") {
+    return (
+      <div
+        key={`${beat.id}-callout-${index}`}
+        style={{
+          position: "absolute",
+          left: Math.round(frameWidth * 0.09),
+          right: Math.round(frameWidth * 0.09),
+          top: Math.round(frameHeight * 0.28),
+        }}
+      >
+        <Callout
+          keyword={asString(props.keyword, "embedding")}
+          description={asString(props.description, beat.text)}
+        />
+      </div>
+    );
+  }
+
   if (layer.type === "LogoOutro") {
     const logoSrcRaw = asString(props.logoSrc, "logo.png");
     const chimeSrcRaw = asString(props.chimeSrc);
@@ -484,6 +664,7 @@ const renderFallbackScene = ({
   const words = renderWords(beat.text);
   const kineticMode = getKineticMode(beat.motionRecipe);
   const promptAppearMode = getPromptAppearMode(beat.motionRecipe);
+  const fallbackEmphasize = sanitizeEmphasize(words, [0, Math.max(0, words.length - 1)]);
 
   if (beat.renderMode === "hero") {
     return (
@@ -554,7 +735,7 @@ const renderFallbackScene = ({
           startFrame={4}
           wordStagger={6}
           mode={beat.renderMode === "media" ? "slide" : kineticMode}
-          emphasize={[0, Math.max(0, words.length - 1)]}
+          emphasize={words.length > 0 ? fallbackEmphasize : [0, 2]}
         />
       </div>
       <LowerThird
@@ -563,6 +744,8 @@ const renderFallbackScene = ({
         startFrame={6}
         durationInFrames={Math.max(12, beat.durationInFrames - 10)}
         align="left"
+        yPct={Math.min(0.9, Math.max(0.56, layout.lowerThirdYPct + (frameWidth >= frameHeight ? 0.04 : 0)))}
+        maxWidthPct={Math.max(0.52, Math.min(0.84, layout.lowerThirdMaxWidthPct + (frameWidth >= frameHeight ? 0.08 : 0)))}
       />
     </>
   );
@@ -634,7 +817,8 @@ const HookIntro = ({
   return (
     <AbsoluteFill
       style={{
-        backgroundColor: "#000",
+        backgroundImage:
+          "radial-gradient(circle at 22% 26%, rgba(124,92,255,0.16), transparent 45%), radial-gradient(circle at 78% 72%, rgba(45,226,230,0.14), transparent 42%), linear-gradient(138deg, #05070f 0%, #0B1020 56%, #101a33 100%)",
         justifyContent: "center",
         alignItems: "center",
         opacity,
@@ -663,24 +847,25 @@ const HookIntro = ({
 
 export const SkillExplainer60 = ({spec, quality}: SkillExplainer60Props) => {
   const {fps, durationInFrames} = useVideoConfig();
+  const preparedSpec = prepareSpec(spec);
 
   const layout: Required<LayoutConfig> = {
     ...DEFAULT_LAYOUT,
     ...(quality?.layout ?? {}),
-    ...(spec?.layout ?? {}),
+    ...(preparedSpec?.layout ?? {}),
   };
 
-  const beats = normalizeBeats(spec, fps, durationInFrames);
-  const audioBedVolume = spec?.meta?.audioBedVolume ?? 0.08;
+  const beats = normalizeBeats(preparedSpec, fps, durationInFrames);
+  const audioBedVolume = preparedSpec?.meta?.audioBedVolume ?? 0.08;
   const audioLayerCount = Math.max(
     1,
-    Math.min(4, Math.floor(spec?.meta?.audioLayerCount ?? 1)),
+    Math.min(4, Math.floor(preparedSpec?.meta?.audioLayerCount ?? 1)),
   );
-  const voiceoverSrcRaw = spec?.audio?.src?.trim();
+  const voiceoverSrcRaw = preparedSpec?.audio?.src?.trim();
   const voiceoverSrc = voiceoverSrcRaw ? staticFile(voiceoverSrcRaw) : null;
-  const voiceoverStart = Math.max(0, Number(spec?.audio?.startSec ?? 0));
+  const voiceoverStart = Math.max(0, Number(preparedSpec?.audio?.startSec ?? 0));
 
-  const beatCutCfg = spec?.global_overlays?.beatcut;
+  const beatCutCfg = preparedSpec?.global_overlays?.beatcut;
   const beatCutEnabled = beatCutCfg?.enabled ?? true;
   const beatCutFrames =
     beatCutCfg?.beatsInFrames && beatCutCfg.beatsInFrames.length > 0
@@ -689,15 +874,18 @@ export const SkillExplainer60 = ({spec, quality}: SkillExplainer60Props) => {
   const transitionFrames = beats.map((beat, index) =>
     index === beats.length - 1
       ? 0
-      : Math.max(12, Math.min(20, Math.floor(beat.durationInFrames * 0.18))),
+      : Math.max(
+          motionkit.recipes.transition.durationFrames,
+          Math.min(20, Math.floor(beat.durationInFrames * 0.18)),
+        ),
   );
-  const hookEnabled = spec?.meta?.hookEnabled ?? true;
-  const hookDurationSec = Math.max(2.6, Number(spec?.meta?.hookDurationSec ?? 3));
+  const hookEnabled = preparedSpec?.meta?.hookEnabled ?? false;
+  const hookDurationSec = Math.max(1.8, Math.min(2.4, Number(preparedSpec?.meta?.hookDurationSec ?? 2.2)));
   const hookDurationInFrames = Math.min(
     durationInFrames - 1,
     Math.max(1, Math.round(hookDurationSec * fps)),
   );
-  const hookTextRaw = spec?.meta?.hookText?.trim();
+  const hookTextRaw = preparedSpec?.meta?.hookText?.trim();
   const hookText = hookTextRaw || beats[0]?.text || "Your search is missing answers.";
 
   return (
@@ -730,6 +918,7 @@ export const SkillExplainer60 = ({spec, quality}: SkillExplainer60Props) => {
 
             const beat = beats[index];
             const timingFrames = transitionFrames[index];
+            const transitionType = constrainTransitionType(beat.transitionType);
 
             return [
               sceneEl,
@@ -737,7 +926,7 @@ export const SkillExplainer60 = ({spec, quality}: SkillExplainer60Props) => {
                 key={`transition-${beats[index].id}`}
                 timing={linearTiming({durationInFrames: timingFrames})}
                 presentation={
-                  beat.transitionType === "slide"
+                  transitionType === "slide"
                     ? slide({direction: index % 2 === 0 ? "from-right" : "from-left"})
                     : fade({shouldFadeOutExitingScene: true})
                 }

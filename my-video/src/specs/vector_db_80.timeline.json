@@ -1,12 +1,12 @@
 {
   "meta": {
     "title": "What is a Vector Database?",
-    "compositionId": "SkillExplainer60",
+    "compositionId": "ExplainerFromSpec",
     "fps": 30,
-    "width": 1920,
-    "height": 1080,
+    "width": 1080,
+    "height": 1920,
     "duration_sec": 60,
-    "style_preset": "landscape_minimal_tech"
+    "style_preset": "xhs_minimal_tech"
   },
   "audio": {
     "src": "tts/vector_db_60s.wav",

@@ -1,0 +1,32 @@
+{
+  "palette": {
+    "bg1": "#05070B",
+    "bg2": "#111827",
+    "primary": "#8FA7FF",
+    "accent": "#7EDCF5",
+    "text": "#F5F5F7",
+    "muted": "rgba(245,245,247,0.74)"
+  },
+  "typography": {
+    "fontFamily": "SF Pro Display, SF Pro Text, Inter, system-ui, sans-serif",
+    "hero": 94,
+    "title": 74,
+    "body": 46,
+    "caption": 30,
+    "lineHeight": 1.08
+  },
+  "radii": {
+    "card": 30,
+    "media": 30
+  },
+  "shadows": {
+    "card": "0 24px 84px rgba(0,0,0,0.36)",
+    "soft": "0 14px 42px rgba(0,0,0,0.24)"
+  },
+  "safeArea": {
+    "leftPct": 0.07,
+    "rightPct": 0.07,
+    "topPct": 0.08,
+    "bottomPct": 0.12
+  }
+}
