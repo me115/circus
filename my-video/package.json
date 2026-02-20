@@ -31,6 +31,7 @@
     "render:skill": "node scripts/render_from_spec.ts --spec src/specs/skill.timeline.json --out out/video.mp4",
     "qa:eval": "python3 qa/evaluate_video.py --video out/video.mp4 --manifest out/manifest.json --expected_text qa/expected_script.txt --out out/report.json",
     "qa:loop": "python3 qa/optimize_loop.py --spec src/specs/skill.timeline.json --target 60 --max_iter 10",
+    "service:start": "uvicorn service.app:app --host 0.0.0.0 --port 8080",
     "build": "remotion bundle",
     "upgrade": "remotion upgrade",
     "lint": "eslint src && tsc",

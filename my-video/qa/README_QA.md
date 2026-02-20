@@ -61,6 +61,14 @@ cp src/style/presets/apple_keynote_169.motionkit.json src/style/motionkit.json
 cp src/config/quality_presets/apple_keynote_169.json src/config/quality.json
 ```
 
+## Backend Service Integration
+
+For external API integration and service deployment, see:
+
+- `doc/BACKEND_SERVICE_GUIDE.md`
+- `doc/SDK_GUIDE.md`
+
+
 ## Iteration Order
 
 `optimize_loop.py` runs this sequence per iteration:

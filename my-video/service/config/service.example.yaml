@@ -1,0 +1,32 @@
+runtime:
+  data_dir: out/service_jobs
+  public_tts_dir: public/tts
+  queue_concurrency: 1
+  command_timeout_sec: 3600
+  default_quality_path: src/config/quality.json
+  quality_169_path: src/config/quality_presets/apple_keynote_169.json
+  stylekit_path: src/style/stylekit.json
+  motionkit_path: src/style/motionkit.json
+  default_spec_path: src/specs/vector_db.timeline.json
+  expected_script_default: qa/expected_script.txt
+
+llm:
+  enabled: false
+  provider: openai_compatible
+  base_url: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY
+  model: gpt-4o-mini
+  timeout_sec: 60
+  temperature: 0.2
+  max_tokens: 1800
+
+tts:
+  enabled: false
+  provider: openai_compatible
+  base_url: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY
+  model: gpt-4o-mini-tts
+  voice: alloy
+  audio_format: wav
+  timeout_sec: 90
+
