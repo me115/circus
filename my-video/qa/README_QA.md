@@ -150,3 +150,24 @@ Exit codes:
 - `0`: gate pass and score >= target
 - `2`: gate pass but score below target
 - `3`: gate fail
+
+## Beat-Driven QA (ConceptExplainer)
+
+Render the beat demo:
+
+```bash
+npm run render:demo
+```
+
+Evaluate beat report:
+
+```bash
+npm run qa:demo
+```
+
+This path validates:
+- timeline stitch integrity (ordered, non-overlap, duration-frame match)
+- required scene coverage (`hook/definition/mental_model/diagram_steps/misconception/recap`)
+- diagram step correctness (node/edge/focus consistency)
+- readability overflow (line-wrap gate)
+- motion timing unification marker

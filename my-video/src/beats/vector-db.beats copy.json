@@ -1,0 +1,116 @@
+{
+  "meta": {
+    "title": "What Is A Vector Database?",
+    "aspect": "16:9",
+    "fps": 30
+  },
+  "beats": [
+    {
+      "id": "b1",
+      "type": "hook",
+      "durationSec": 4,
+      "onScreen": [
+        "Search by meaning, not just keywords."
+      ],
+      "emphasis": ["meaning", "keywords"]
+    },
+    {
+      "id": "b2",
+      "type": "definition",
+      "durationSec": 6,
+      "title": "One-Line Definition",
+      "onScreen": [
+        "Vector DB stores meaning as embeddings."
+      ],
+      "emphasis": ["embeddings", "nearest"]
+    },
+    {
+      "id": "b3",
+      "type": "mental_model",
+      "durationSec": 8,
+      "title": "Mental Model",
+      "onScreen": [
+        "Keyword search: exact token match",
+        "Vector search: semantic neighborhood match"
+      ],
+      "emphasis": ["exact", "semantic"]
+    },
+    {
+      "id": "b4",
+      "type": "diagram_steps",
+      "durationSec": 16,
+      "title": "How It Works",
+      "steps": [
+        {
+          "label": "1) Content is encoded into embeddings.",
+          "nodes": [
+            {"id": "content", "text": "Content", "x": 140, "y": 220},
+            {"id": "encoder", "text": "Encoder", "x": 500, "y": 220},
+            {"id": "vec", "text": "Vector", "x": 840, "y": 220}
+          ],
+          "edges": [
+            {"from": "content", "to": "encoder"},
+            {"from": "encoder", "to": "vec"}
+          ],
+          "focusNodeIds": ["encoder"]
+        },
+        {
+          "label": "2) Vectors are indexed for fast nearest-neighbor lookup.",
+          "nodes": [
+            {"id": "vec", "text": "Vector", "x": 220, "y": 240},
+            {"id": "db", "text": "Vector DB + ANN", "x": 720, "y": 240}
+          ],
+          "edges": [
+            {"from": "vec", "to": "db"}
+          ],
+          "focusNodeIds": ["db"]
+        },
+        {
+          "label": "3) Query vector finds Top-K closest results.",
+          "nodes": [
+            {"id": "query", "text": "Query Vec", "x": 180, "y": 560},
+            {"id": "db", "text": "Vector DB", "x": 560, "y": 320},
+            {"id": "topk", "text": "Top-K", "x": 860, "y": 560}
+          ],
+          "edges": [
+            {"from": "query", "to": "db"},
+            {"from": "db", "to": "topk"}
+          ],
+          "focusNodeIds": ["query", "topk"]
+        }
+      ],
+      "emphasis": ["embeddings", "ANN", "Top-K"]
+    },
+    {
+      "id": "b5",
+      "type": "misconception",
+      "durationSec": 6,
+      "onScreen": [
+        "Myth: vector DB is just faster SQL.",
+        "Truth: it solves semantic retrieval."
+      ],
+      "emphasis": ["Myth", "Truth", "semantic"]
+    },
+    {
+      "id": "b6",
+      "type": "recap",
+      "durationSec": 6,
+      "title": "Recap",
+      "onScreen": [
+        "Store meaning as embeddings.",
+        "Search by distance, not exact phrasing.",
+        "Use ANN index to scale retrieval."
+      ],
+      "emphasis": ["embeddings", "distance", "ANN"]
+    },
+    {
+      "id": "b7",
+      "type": "outro",
+      "durationSec": 4,
+      "onScreen": [
+        "Vectors find intent. Keywords match text."
+      ],
+      "emphasis": ["intent"]
+    }
+  ]
+}

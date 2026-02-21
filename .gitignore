@@ -1,0 +1,13 @@
+node_modules
+.next
+tsconfig.tsbuildinfo
+error.log
+.env.local*
+.env
+.trigger*
+.localdata*
+circus
+video-engine/node_modules
+video-engine/out
+video-engine/public/tts/*.mp3
+video-engine/public/tts/*.wav

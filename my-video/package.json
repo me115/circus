@@ -14,7 +14,8 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "remotion": "4.0.421",
-    "tailwindcss": "4.0.0"
+    "tailwindcss": "4.0.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@remotion/eslint-config-flat": "4.0.421",
@@ -25,10 +26,13 @@
     "typescript": "5.9.3"
   },
   "scripts": {
+    "preview": "remotion preview src/index.ts",
     "start": "remotion studio",
     "dev": "remotion studio",
     "render": "remotion render GeminiStyleDemo out/gemini-style-demo.mp4",
+    "render:demo": "node scripts/render_demo.ts --spec src/beats/vector-db.beats.json --out out/vector-db.mp4 --manifest out/vector-db.manifest.json",
     "render:skill": "node scripts/render_from_spec.ts --spec src/specs/skill.timeline.json --out out/video.mp4",
+    "qa:demo": "python3 qa/evaluate_beats.py --manifest out/vector-db.manifest.json --video out/vector-db.mp4 --out out/vector-db.report.json --target 80",
     "qa:eval": "python3 qa/evaluate_video.py --video out/video.mp4 --manifest out/manifest.json --expected_text qa/expected_script.txt --out out/report.json",
     "qa:loop": "python3 qa/optimize_loop.py --spec src/specs/skill.timeline.json --target 60 --max_iter 10",
     "service:start": "uvicorn service.app:app --host 0.0.0.0 --port 8080",

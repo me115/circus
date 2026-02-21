@@ -1,0 +1,92 @@
+{
+  "meta": {
+    "title": "Vector DB Marker Timeline Demo",
+    "aspect": "16:9",
+    "fps": 30
+  },
+  "audio": {
+    "src": "tts/vector_db_60s.wav",
+    "startSec": 0,
+    "markers": [
+      {"id": "m1", "beatId": "b1", "startSec": 0, "endSec": 4},
+      {"id": "m2", "beatId": "b2", "startSec": 4, "endSec": 10},
+      {"id": "m3", "beatId": "b3", "startSec": 10, "endSec": 18},
+      {"id": "m4", "beatId": "b4", "startSec": 18, "endSec": 34},
+      {"id": "m5", "beatId": "b5", "startSec": 34, "endSec": 40},
+      {"id": "m6", "beatId": "b6", "startSec": 40, "endSec": 46},
+      {"id": "m7", "beatId": "b7", "startSec": 46, "endSec": 50}
+    ]
+  },
+  "beats": [
+    {"id": "b1", "type": "hook", "onScreen": ["Search by meaning, not keywords."]},
+    {
+      "id": "b2",
+      "type": "definition",
+      "title": "Definition",
+      "onScreen": ["A vector DB stores embeddings and finds nearest neighbors."]
+    },
+    {
+      "id": "b3",
+      "type": "mental_model",
+      "onScreen": [
+        "Keywords = literal match",
+        "Vectors = intent match"
+      ]
+    },
+    {
+      "id": "b4",
+      "type": "diagram_steps",
+      "title": "Pipeline",
+      "steps": [
+        {
+          "label": "Encode content",
+          "nodes": [
+            {"id": "a", "text": "Content", "x": 140, "y": 240},
+            {"id": "b", "text": "Encoder", "x": 520, "y": 240},
+            {"id": "c", "text": "Vector", "x": 860, "y": 240}
+          ],
+          "edges": [{"from": "a", "to": "b"}, {"from": "b", "to": "c"}],
+          "focusNodeIds": ["b"]
+        },
+        {
+          "label": "Index vectors",
+          "nodes": [
+            {"id": "c", "text": "Vectors", "x": 240, "y": 240},
+            {"id": "d", "text": "ANN Index", "x": 740, "y": 240}
+          ],
+          "edges": [{"from": "c", "to": "d"}],
+          "focusNodeIds": ["d"]
+        },
+        {
+          "label": "Query nearest top-k",
+          "nodes": [
+            {"id": "q", "text": "Query Vec", "x": 200, "y": 580},
+            {"id": "d", "text": "Vector DB", "x": 560, "y": 340},
+            {"id": "r", "text": "Top-K", "x": 860, "y": 580}
+          ],
+          "edges": [{"from": "q", "to": "d"}, {"from": "d", "to": "r"}],
+          "focusNodeIds": ["q", "r"]
+        }
+      ]
+    },
+    {
+      "id": "b5",
+      "type": "misconception",
+      "onScreen": ["Myth: faster SQL", "Truth: semantic retrieval"]
+    },
+    {
+      "id": "b6",
+      "type": "recap",
+      "onScreen": [
+        "Store embeddings",
+        "Search by distance",
+        "Scale with ANN"
+      ]
+    },
+    {
+      "id": "b7",
+      "type": "outro",
+      "onScreen": ["Vectors find intent."]
+    }
+  ]
+}

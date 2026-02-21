@@ -1,0 +1,189 @@
+{
+  "meta": {
+    "topic": "向量数据库（Vector DB）",
+    "aspect": "9:16",
+    "fps": 30
+  },
+  "beats": [
+    {
+      "id": "b1",
+      "type": "hook",
+      "durationSec": 4,
+      "onScreen": [
+        "为什么“语义相似”搜索",
+        "用传统数据库很难？"
+      ],
+      "emphasis": [
+        "语义相似"
+      ]
+    },
+    {
+      "id": "b2",
+      "type": "definition",
+      "durationSec": 6,
+      "title": "一句话定义",
+      "onScreen": [
+        "向量数据库：存“向量”，用相似度做检索"
+      ],
+      "emphasis": [
+        "向量",
+        "相似度"
+      ]
+    },
+    {
+      "id": "b3",
+      "type": "mental_model",
+      "durationSec": 8,
+      "title": "心智模型",
+      "onScreen": [
+        "关键词搜索：找“字面一样”",
+        "向量搜索：找“意思接近”"
+      ],
+      "emphasis": [
+        "字面",
+        "意思"
+      ]
+    },
+    {
+      "id": "b4",
+      "type": "diagram_steps",
+      "durationSec": 16,
+      "title": "它怎么工作？",
+      "steps": [
+        {
+          "label": "1) 文本/图片先被模型“编码成向量”",
+          "nodes": [
+            {
+              "id": "a",
+              "text": "内容",
+              "x": 120,
+              "y": 220
+            },
+            {
+              "id": "b",
+              "text": "Embedding模型",
+              "x": 540,
+              "y": 220
+            },
+            {
+              "id": "c",
+              "text": "向量",
+              "x": 880,
+              "y": 220
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            }
+          ],
+          "focusNodeIds": [
+            "b"
+          ]
+        },
+        {
+          "label": "2) 向量进库，并建立近邻索引（ANN）",
+          "nodes": [
+            {
+              "id": "c",
+              "text": "向量",
+              "x": 220,
+              "y": 220
+            },
+            {
+              "id": "d",
+              "text": "Vector DB + 索引",
+              "x": 720,
+              "y": 220
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "d"
+            }
+          ],
+          "focusNodeIds": [
+            "d"
+          ]
+        },
+        {
+          "label": "3) 查询也变向量，按“距离”找最近的K个",
+          "nodes": [
+            {
+              "id": "q",
+              "text": "Query向量",
+              "x": 220,
+              "y": 420
+            },
+            {
+              "id": "d",
+              "text": "Vector DB",
+              "x": 720,
+              "y": 220
+            },
+            {
+              "id": "r",
+              "text": "Top-K结果",
+              "x": 920,
+              "y": 420
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "r"
+            }
+          ],
+          "focusNodeIds": [
+            "q",
+            "r"
+          ]
+        }
+      ],
+      "emphasis": [
+        "Embedding",
+        "索引",
+        "距离",
+        "Top-K"
+      ]
+    },
+    {
+      "id": "b5",
+      "type": "misconception",
+      "durationSec": 6,
+      "onScreen": [
+        "误区：向量库=更快的SQL？",
+        "正确：它解决的是“语义相似检索”"
+      ],
+      "emphasis": [
+        "误区",
+        "语义相似检索"
+      ]
+    },
+    {
+      "id": "b6",
+      "type": "recap",
+      "durationSec": 6,
+      "onScreen": [
+        "存的是向量（语义表示）",
+        "靠相似度/距离做检索",
+        "用索引加速找近邻"
+      ],
+      "emphasis": [
+        "向量",
+        "相似度",
+        "索引"
+      ]
+    }
+  ]
+}

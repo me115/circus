@@ -27,11 +27,38 @@ npm run dev
 npm start
 ```
 
+**Beat-driven Preview (ConceptExplainer)**
+
+```console
+npm run preview
+```
+
+Then select composition `ConceptExplainer`.
+
 **Render video**
 
 ```console
 npm run render
 ```
+
+**Render Beat Demo**
+
+```console
+npm run render:demo
+```
+
+Output:
+- `out/vector-db.mp4`
+- `out/vector-db.manifest.json`
+
+**Evaluate Beat Demo**
+
+```console
+npm run qa:demo
+```
+
+Output:
+- `out/vector-db.report.json`
 
 **Upgrade Remotion**
 
